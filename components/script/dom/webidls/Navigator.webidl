@@ -58,9 +58,10 @@ interface NavigatorCookies {
   readonly attribute boolean cookieEnabled;
 };
 
-// https://w3c.github.io/webvr/#interface-navigator
+// https://w3c.github.io/webvr/spec/1.1/#interface-navigator
 partial interface Navigator {
-  [SameObject, Pref="dom.webvr.enabled"] readonly attribute VR vr;
+  [Pref="dom.webvr.enabled"] Promise<sequence<VRDisplay>> getVRDisplays();
+  //readonly attribute FrozenArray<VRDisplay> activeVRDisplays;
 };
 
 // https://w3c.github.io/permissions/#navigator-and-workernavigator-extension

@@ -392,6 +392,10 @@ impl VRDisplayMethods for VRDisplay {
         let msg = WebVRCommand::SubmitFrame(display_id, layer.left_bounds, layer.right_bounds);
         self.layer_ctx.get().unwrap().send_vr_command(msg);
     }
+
+    fn GetLayers(&self) -> Vec<VRLayer> {
+        Vec::new()
+    }
 }
 
 impl VRDisplay {
@@ -466,9 +470,9 @@ impl VRDisplay {
     }
 
     fn notify_event(&self, event: &WebVRDisplayEvent) {
-        let root = Root::from_ref(&*self);
+        let root = Root::from_ref(&*self); 
         let event = VRDisplayEvent::new_from_webvr(&self.global(), &root, &event);
-        event.upcast::<Event>().fire(self.upcast());
+        event.upcast::<Event>().fire(self.global().as_window().upcast::<EventTarget>());
     }
 
     fn init_present(&self) {
