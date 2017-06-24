@@ -264,7 +264,13 @@ impl WebGLRenderingContext {
         let rect = self.current_scissor.get();
         self.ipc_renderer
             .send(CanvasMsg::WebGL(WebGLCommand::Scissor(rect.0, rect.1, rect.2, rect.3)))
-            .unwrap()
+            .unwrap();
+
+        if let Some(id) = self.bound_texture_2d.get() {
+            self.ipc_renderer
+            .send(CanvasMsg::WebGL(WebGLCommand::BindTexture(constants::TEXTURE_2D, Some(id.id()))))
+            .unwrap();
+        }
     }
 
     pub fn ipc_renderer(&self) -> IpcSender<CanvasMsg> {
