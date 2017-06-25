@@ -46,8 +46,9 @@ public class MainActivity extends android.app.NativeActivity {
         Log.i(LOGTAG, "Loading the NativeActivity");
 
         // Libaries should be loaded in reverse dependency order
-        System.loadLibrary("gvr");
-        System.loadLibrary("gvr_audio");
+        //System.loadLibrary("gvr");
+        //System.loadLibrary("gvr_audio");
+        System.loadLibrary("vrapi");
         System.loadLibrary("c++_shared");
         System.loadLibrary("servo");
     }

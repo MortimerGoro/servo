@@ -175,9 +175,11 @@ android {
 }
 
 dependencies {
-    compile 'com.google.vr:sdk-base:1.30.0'
-    compile 'com.google.vr:sdk-audio:1.30.0'
-    compile project(':GVRService')
+    //compile 'com.google.vr:sdk-base:1.30.0'
+    //compile 'com.google.vr:sdk-audio:1.30.0'
+    //compile project(':GVRService')
+
+    compile project(':OVRService')
 
     //Dependency list
     def deps = [
