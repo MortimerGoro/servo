@@ -12,7 +12,8 @@
 
 use app_units::{AU_PER_PX, Au};
 use block::{BlockFlow, BlockStackingContextType};
-use canvas_traits::{CanvasData, CanvasMsg, FromLayoutMsg};
+use canvas_traits::{CanvasData, FromLayoutMsg};
+use canvas_traits::canvas::CanvasMsg;
 use context::LayoutContext;
 use euclid::{Transform3D, Point2D, Vector2D, Rect, SideOffsets2D, Size2D, TypedSize2D};
 use flex::FlexFlow;

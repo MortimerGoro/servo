@@ -70,8 +70,9 @@ use bluetooth_traits::BluetoothRequest;
 use browsingcontext::{BrowsingContext, SessionHistoryChange, SessionHistoryEntry};
 use browsingcontext::{FullyActiveBrowsingContextsIterator, AllBrowsingContextsIterator};
 use canvas::canvas_paint_thread::CanvasPaintThread;
-use canvas::webgl_paint_thread::WebGLPaintThread;
-use canvas_traits::CanvasMsg;
+use canvas::webgl_thread::WebGLThread;
+use canvas_traits::canvas::CanvasMsg;
+use canvas_traits::webgl::{WebGLMsg, WebGLSender};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use compositing::SendableFrameTree;
 use compositing::compositor_thread::CompositorProxy;
@@ -291,6 +292,10 @@ pub struct Constellation<Message, LTF, STF> {
 
     /// Phantom data that keeps the Rust type system happy.
     phantom: PhantomData<(Message, LTF, STF)>,
+
+    /// An IPC channel for the constellation to send messages to the
+    /// WebGL Renderer Thread.
+    webgl_thread: Option<WebGLSender<WebGLMsg>>,
 
     /// A channel through which messages can be sent to the webvr thread.
     webvr_thread: Option<IpcSender<WebVRMsg>>,
@@ -571,7 +576,8 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
                     info!("Using seed {} for random pipeline closure.", seed);
                     (rng, prob)
                 }),
-                webvr_thread: None
+                webgl_thread: None,
+                webvr_thread: None,
             };
 
             constellation.run();

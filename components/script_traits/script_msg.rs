@@ -13,6 +13,7 @@ use MozBrowserEvent;
 use WorkerGlobalScopeInit;
 use WorkerScriptLoadOrigin;
 use canvas_traits::canvas::CanvasMsg;
+use canvas_traits::webgl::WebGLMsgSender;
 use devtools_traits::{ScriptToDevtoolsControlMsg, WorkerId};
 use euclid::{Point2D, Size2D, TypedSize2D};
 use ipc_channel::ipc::IpcSender;
@@ -80,9 +81,9 @@ pub enum ScriptMsg {
     CreateCanvasPaintThread(Size2D<i32>, IpcSender<IpcSender<CanvasMsg>>),
     /// Requests that a new WebGL thread be created. (This is done in the constellation because
     /// WebGL uses the GPU and we don't want to give untrusted content access to the GPU.)
-    CreateWebGLPaintThread(Size2D<i32>,
-                           GLContextAttributes,
-                           IpcSender<Result<(IpcSender<CanvasMsg>, GLLimits), String>>),
+    CreateWebGLContext(Size2D<i32>,
+                       GLContextAttributes,
+                       IpcSender<Result<(WebGLMsgSender, GLLimits), String>>),
     /// Notifies the constellation that this frame has received focus.
     Focus(PipelineId),
     /// Forward an event that was sent to the parent window.

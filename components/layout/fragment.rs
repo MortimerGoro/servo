@@ -8,7 +8,7 @@
 
 use StyleArc;
 use app_units::Au;
-use canvas_traits::CanvasMsg;
+use canvas_traits::canvas::CanvasMsg;
 use context::{LayoutContext, with_thread_local_font_context};
 use euclid::{Transform3D, Point2D, Vector2D, Radians, Rect, Size2D};
 use floats::ClearType;

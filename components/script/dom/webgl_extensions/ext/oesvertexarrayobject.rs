@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use canvas_traits::CanvasMsg;
+use canvas_traits::canvas::CanvasMsg;
 use dom::bindings::codegen::Bindings::OESVertexArrayObjectBinding::{self, OESVertexArrayObjectMethods};
 use dom::bindings::codegen::Bindings::OESVertexArrayObjectBinding::OESVertexArrayObjectConstants;
 use dom::bindings::js::{JS, MutNullableJS, Root};
@@ -49,7 +49,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
     // https://www.khronos.org/registry/webgl/extensions/OES_vertex_array_object/
     fn CreateVertexArrayOES(&self) -> Option<Root<WebGLVertexArrayObjectOES>> {
         let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
-        self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::CreateVertexArray(sender)));
+        self.ctx.send_command(CanvasMsg::WebGL(WebGLCommand::CreateVertexArray(sender)));
 
         let result = receiver.recv().unwrap();
         result.map(|vao_id| WebGLVertexArrayObjectOES::new(&self.global(), vao_id))
@@ -66,7 +66,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
             if let Some(bound_vao) = self.bound_vao.get() {
                 if bound_vao.id() == vao.id() {
                     self.bound_vao.set(None);
-                    self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
+                    self.ctx.send_command(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
                 }
             }
 
@@ -80,7 +80,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
             }
 
             // Delete the vao
-            self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::DeleteVertexArray(vao.id())));
+            self.ctx.send_command(CanvasMsg::WebGL(WebGLCommand::DeleteVertexArray(vao.id())));
             vao.set_deleted();
         }
     }
@@ -114,7 +114,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
                 return;
             }
 
-            self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(Some(vao.id()))));
+            self.ctx.send_command(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(Some(vao.id()))));
             vao.set_ever_bound();
             self.bound_vao.set(Some(&vao));
 
@@ -124,7 +124,7 @@ impl OESVertexArrayObjectMethods for OESVertexArrayObject {
             let element_array = vao.bound_buffer_element_array();
             self.ctx.set_bound_buffer_element_array(element_array.as_ref().map(|buffer| &**buffer));
         } else {
-            self.ctx.send_renderer_message(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
+            self.ctx.send_command(CanvasMsg::WebGL(WebGLCommand::BindVertexArray(None)));
             self.bound_vao.set(None);
             self.ctx.set_bound_attrib_buffers(iter::empty());
         }
