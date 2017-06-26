@@ -19,6 +19,39 @@ use std::sync::Arc;
 use std::thread;
 use webrender_traits;
 
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum CanvasMsg { 
+    Canvas2d(Canvas2dMsg),
+    Common(CanvasCommonMsg), 
+    FromLayout(FromLayoutMsg),
+    FromScript(FromScriptMsg),
+    Resize,
+    Close,
+} 
+
+ 
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum CanvasData { 
+    Image(CanvasImageData), 
+    WebGL(WebGLContextId), 
+} 
+ 
+#[derive(Clone, Deserialize, Serialize)] 
+pub struct CanvasImageData { 
+    pub image_key: webrender_traits::ImageKey, 
+} 
+ 
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum FromLayoutMsg { 
+    SendData(IpcSender<CanvasData>), 
+} 
+ 
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum FromScriptMsg { 
+    SendPixels(IpcSender<Option<Vec<u8>>>), 
+} 
+
+
 impl<'a> CanvasPaintThread<'a> {
     /// It reads image data from the canvas
     /// canvas_size: The size of the canvas we're reading from
@@ -188,12 +221,8 @@ impl<'a> CanvasPaintThread<'a> {
                             Canvas2dMsg::SetShadowColor(ref color) => painter.set_shadow_color(color.to_azure_style()),
                         }
                     },
-                    CanvasMsg::Common(message) => {
-                        match message {
-                            CanvasCommonMsg::Close => break,
-                            CanvasCommonMsg::Recreate(size) => painter.recreate(size),
-                        }
-                    },
+                    CanvasMsg::Close => break,
+                    CanvasMsg::Recreate(size) => painter.recreate(size),
                     CanvasMsg::FromScript(message) => {
                         match message {
                             FromScriptMsg::SendPixels(chan) => {
@@ -208,8 +237,6 @@ impl<'a> CanvasPaintThread<'a> {
                             }
                         }
                     }
-                    CanvasMsg::WebGL(_) => panic!("Wrong WebGL message sent to Canvas2D thread"),
-                    CanvasMsg::WebVR(_) => panic!("Wrong WebVR message sent to Canvas2D thread"),
                 }
             }
         }).expect("Thread spawning failed");
