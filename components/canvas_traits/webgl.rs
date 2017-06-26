@@ -2,33 +2,44 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use euclid::Size2D;
-use ipc_channel::ipc::IpcSender;
-
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
-
-use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextAttributes, GLLimits};
+use euclid::Size2D;
+use ipc_channel::ipc;
+use ipc_channel::ipc::{IpcReceiver, IpcSender};
+use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::io;
+use super::{FromLayoutMsg, FromScriptMsg};
 
+pub type WebGLSender<T> = IpcSender<T>;
+pub type WebGLReceiver<T> = IpcReceiver<T>;
+
+pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), io::Error> {
+    ipc::channel()
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLMsg {
-    CreateContext(Size2D, GLContextAttributes, IpcSender<Result<(WebGLCommandSender, GLLimits), String>>),
+    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLMsgSender, GLLimits), String>>),
+    ResizeContext(WebGLContextId, Size2D<i32>),
     WebGLCommand(WebGLContextId, WebGLCommand),
-    WebVRCommand(WebGLContextId, VRCompositorCommand),
+    WebVRCommand(WebGLContextId, WebVRCommand),
     FromScript(FromScriptMsg),
     FromLayout(FromLayoutMsg),
 }
 
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct WebGLCommandSender {
-    ctx_id: u32,
-    sender: IpcSender<WebGLCommand>,
+pub struct WebGLMsgSender {
+    ctx_id: WebGLContextId,
+    sender: WebGLSender<WebGLMsg>,
 }
 
-impl WebGLCommandSender {
-    pub fn new(id: WebGLContextId, sender: IpcSender<WebGLCommand>) -> Self {
-        WebGLCommandSender {
+impl WebGLMsgSender {
+    pub fn new(id: WebGLContextId, sender: WebGLSender<WebGLMsg>) -> Self {
+        WebGLMsgSender {
             ctx_id : id,
             sender: sender,
         }
@@ -40,14 +51,19 @@ impl WebGLCommandSender {
     }
 
     #[inline]
-    pub fn send_vr(&self, command: VRCompositorCommand) {
+    pub fn send_vr(&self, command: WebVRCommand) {
         self.sender.send(WebGLMsg::WebVRCommand(self.ctx_id, command)).unwrap();
+    }
+
+    #[inline]
+    pub fn resize(&self, size: Size2D<i32>) {
+        self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size)).unwrap();
     }
 }
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLCommand {
-    GetContextAttributes(MsgSender<GLContextAttributes>),
+    GetContextAttributes(WebGLSender<GLContextAttributes>),
     ActiveTexture(u32),
     BlendColor(f32, f32, f32, f32),
     BlendEquation(u32),
@@ -74,12 +90,12 @@ pub enum WebGLCommand {
     CompileShader(WebGLShaderId, String),
     CopyTexImage2D(u32, i32, u32, i32, i32, i32, i32, i32),
     CopyTexSubImage2D(u32, i32, i32, i32, i32, i32, i32, i32),
-    CreateBuffer(MsgSender<Option<WebGLBufferId>>),
-    CreateFramebuffer(MsgSender<Option<WebGLFramebufferId>>),
-    CreateRenderbuffer(MsgSender<Option<WebGLRenderbufferId>>),
-    CreateTexture(MsgSender<Option<WebGLTextureId>>),
-    CreateProgram(MsgSender<Option<WebGLProgramId>>),
-    CreateShader(u32, MsgSender<Option<WebGLShaderId>>),
+    CreateBuffer(WebGLSender<Option<WebGLBufferId>>),
+    CreateFramebuffer(WebGLSender<Option<WebGLFramebufferId>>),
+    CreateRenderbuffer(WebGLSender<Option<WebGLRenderbufferId>>),
+    CreateTexture(WebGLSender<Option<WebGLTextureId>>),
+    CreateProgram(WebGLSender<Option<WebGLProgramId>>),
+    CreateShader(u32, WebGLSender<Option<WebGLShaderId>>),
     DeleteBuffer(WebGLBufferId),
     DeleteFramebuffer(WebGLFramebufferId),
     DeleteRenderbuffer(WebGLRenderbufferId),
@@ -96,23 +112,23 @@ pub enum WebGLCommand {
     EnableVertexAttribArray(u32),
     FramebufferRenderbuffer(u32, u32, u32, Option<WebGLRenderbufferId>),
     FramebufferTexture2D(u32, u32, u32, Option<WebGLTextureId>, i32),
-    GetBufferParameter(u32, u32, MsgSender<WebGLResult<WebGLParameter>>),
-    GetExtensions(MsgSender<String>),
-    GetParameter(u32, MsgSender<WebGLResult<WebGLParameter>>),
-    GetProgramParameter(WebGLProgramId, u32, MsgSender<WebGLResult<WebGLParameter>>),
-    GetShaderParameter(WebGLShaderId, u32, MsgSender<WebGLResult<WebGLParameter>>),
-    GetShaderPrecisionFormat(u32, u32, MsgSender<WebGLResult<(i32, i32, i32)>>),
-    GetActiveAttrib(WebGLProgramId, u32, MsgSender<WebGLResult<(i32, u32, String)>>),
-    GetActiveUniform(WebGLProgramId, u32, MsgSender<WebGLResult<(i32, u32, String)>>),
-    GetAttribLocation(WebGLProgramId, String, MsgSender<Option<i32>>),
-    GetUniformLocation(WebGLProgramId, String, MsgSender<Option<i32>>),
-    GetVertexAttrib(u32, u32, MsgSender<WebGLResult<WebGLParameter>>),
-    GetVertexAttribOffset(u32, u32, MsgSender<WebGLResult<isize>>),
-    GetShaderInfoLog(WebGLShaderId, MsgSender<String>),
-    GetProgramInfoLog(WebGLProgramId, MsgSender<String>),
+    GetBufferParameter(u32, u32, WebGLSender<WebGLResult<WebGLParameter>>),
+    GetExtensions(WebGLSender<String>),
+    GetParameter(u32, WebGLSender<WebGLResult<WebGLParameter>>),
+    GetProgramParameter(WebGLProgramId, u32, WebGLSender<WebGLResult<WebGLParameter>>),
+    GetShaderParameter(WebGLShaderId, u32, WebGLSender<WebGLResult<WebGLParameter>>),
+    GetShaderPrecisionFormat(u32, u32, WebGLSender<WebGLResult<(i32, i32, i32)>>),
+    GetActiveAttrib(WebGLProgramId, u32, WebGLSender<WebGLResult<(i32, u32, String)>>),
+    GetActiveUniform(WebGLProgramId, u32, WebGLSender<WebGLResult<(i32, u32, String)>>),
+    GetAttribLocation(WebGLProgramId, String, WebGLSender<Option<i32>>),
+    GetUniformLocation(WebGLProgramId, String, WebGLSender<Option<i32>>),
+    GetVertexAttrib(u32, u32, WebGLSender<WebGLResult<WebGLParameter>>),
+    GetVertexAttribOffset(u32, u32, WebGLSender<WebGLResult<isize>>),
+    GetShaderInfoLog(WebGLShaderId, WebGLSender<String>),
+    GetProgramInfoLog(WebGLProgramId, WebGLSender<String>),
     PolygonOffset(f32, f32),
     RenderbufferStorage(u32, u32, i32, i32),
-    ReadPixels(i32, i32, i32, i32, u32, u32, MsgSender<Vec<u8>>),
+    ReadPixels(i32, i32, i32, i32, u32, u32, WebGLSender<Vec<u8>>),
     SampleCoverage(f32, bool),
     Scissor(i32, i32, i32, i32),
     StencilFunc(u32, i32, u32),
@@ -122,7 +138,7 @@ pub enum WebGLCommand {
     StencilOp(u32, u32, u32),
     StencilOpSeparate(u32, u32, u32, u32),
     Hint(u32, u32),
-    IsEnabled(u32, MsgSender<bool>),
+    IsEnabled(u32, WebGLSender<bool>),
     LineWidth(f32),
     PixelStorei(u32, i32),
     LinkProgram(WebGLProgramId),
@@ -155,24 +171,14 @@ pub enum WebGLCommand {
     TexParameteri(u32, u32, i32),
     TexParameterf(u32, u32, f32),
     TexSubImage2D(u32, i32, i32, i32, i32, i32, u32, u32, Vec<u8>),
-    DrawingBufferWidth(MsgSender<i32>),
-    DrawingBufferHeight(MsgSender<i32>),
-    Finish(MsgSender<()>),
+    DrawingBufferWidth(WebGLSender<i32>),
+    DrawingBufferHeight(WebGLSender<i32>),
+    Finish(WebGLSender<()>),
     Flush,
     GenerateMipmap(u32),
-    CreateVertexArray(MsgSender<Option<WebGLVertexArrayId>>),
+    CreateVertexArray(WebGLSender<Option<WebGLVertexArrayId>>),
     DeleteVertexArray(WebGLVertexArrayId),
     BindVertexArray(Option<WebGLVertexArrayId>),
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum FromLayoutMsg {
-    SendData(IpcSender<CanvasData>),
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum FromScriptMsg {
-    SendPixels(IpcSender<Option<Vec<u8>>>),
 }
 
 #[cfg(feature = "nightly")]
@@ -182,13 +188,14 @@ macro_rules! define_resource_id_struct {
         pub struct $name(NonZero<u32>);
 
         impl $name {
+            #[allow(unsafe_code)]
             #[inline]
-            unsafe fn new(id: u32) -> Self {
+            pub unsafe fn new(id: u32) -> Self {
                 $name(NonZero::new(id))
             }
 
             #[inline]
-            fn get(self) -> u32 {
+            pub fn get(self) -> u32 {
                 *self.0
             }
         }
@@ -203,13 +210,14 @@ macro_rules! define_resource_id_struct {
         pub struct $name(u32);
 
         impl $name {
+            #[allow(unsafe_code)]
             #[inline]
-            unsafe fn new(id: u32) -> Self {
+            pub unsafe fn new(id: u32) -> Self {
                 $name(id)
             }
 
             #[inline]
-            fn get(self) -> u32 {
+            pub fn get(self) -> u32 {
                 self.0
             }
         }
@@ -220,6 +228,7 @@ macro_rules! define_resource_id {
     ($name:ident) => {
         define_resource_id_struct!($name);
 
+        #[allow(unsafe_code)]
         impl<'de> ::serde::Deserialize<'de> for $name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
                 where D: ::serde::Deserializer<'de>
@@ -319,7 +328,7 @@ pub type WebVRDeviceId = u32;
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebVRCommand {
     Create(WebVRDeviceId),
-    SyncPoses(WebVRDeviceId, f64, f64, MsgSender<Result<Vec<u8>,()>>),
+    SyncPoses(WebVRDeviceId, f64, f64, WebGLSender<Result<Vec<u8>,()>>),
     SubmitFrame(WebVRDeviceId, [f32; 4], [f32; 4]),
     Release(WebVRDeviceId)
 }
@@ -327,7 +336,7 @@ pub enum WebVRCommand {
 // Trait object that handles WebVR commands.
 // Receives the texture id and size associated to the WebGLContext.
 pub trait WebVRRenderHandler: Send {
-    fn handle(&mut self, command: WebVRCommand, texture: Option<(u32, DeviceIntSize)>);
+    fn handle(&mut self, command: WebVRCommand, texture: Option<(u32, Size2D<i32>)>);
 }
 
 impl fmt::Debug for WebGLCommand {

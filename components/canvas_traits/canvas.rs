@@ -3,6 +3,8 @@ use euclid::{Transform2D, Point2D, Vector2D, Rect, Size2D};
 use ipc_channel::ipc::IpcSender;
 use std::default::Default;
 use std::str::FromStr;
+use super::{FromLayoutMsg, FromScriptMsg};
+use webrender_traits;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum FillRule {
@@ -10,35 +12,22 @@ pub enum FillRule {
     Evenodd,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-pub enum CanvasCommonMsg {
-    Close,
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum CanvasMsg { 
+    Canvas2d(Canvas2dMsg),
+    FromLayout(FromLayoutMsg),
+    FromScript(FromScriptMsg),
     Recreate(Size2D<i32>),
+    Close,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-pub enum CanvasData {
-    Image(CanvasImageData),
-    WebGL(WebGLContextId),
-}
+#[derive(Clone, Deserialize, Serialize)] 
+pub struct CanvasImageData { 
+    pub image_key: webrender_traits::ImageKey, 
+} 
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct CanvasImageData {
-    pub image_key: webrender_traits::ImageKey,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum FromLayoutMsg {
-    SendData(IpcSender<CanvasData>),
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum FromScriptMsg {
-    SendPixels(IpcSender<Option<Vec<u8>>>),
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum Canvas2DCommand {
+pub enum Canvas2dMsg {
     Arc(Point2D<f32>, f32, f32, f32, bool),
     ArcTo(Point2D<f32>, Point2D<f32>, f32),
     DrawImage(Vec<u8>, Size2D<f64>, Rect<f64>, Rect<f64>, bool),
@@ -76,10 +65,6 @@ pub enum Canvas2DCommand {
     SetShadowOffsetY(f64),
     SetShadowBlur(f64),
     SetShadowColor(RGBA),
-    Close,
-    Resize(Size2D<i32>),
-    FromScriptMsg(FromScriptMsg),
-    FromLayoutMsg(FromLayoutMsg),
 }
 
 #[derive(Clone, Deserialize, Serialize, HeapSizeOf)]

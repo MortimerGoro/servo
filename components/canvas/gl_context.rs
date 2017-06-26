@@ -5,12 +5,14 @@
 //! A set of WebGL-related types, in their own module so it's easy to
 //! compile it off.
 
+use canvas_traits::webgl::WebGLCommand;
+use euclid::Size2D;
 use gleam::gl;
 use offscreen_gl_context::{NativeGLContext, NativeGLContextHandle};
 use offscreen_gl_context::{GLContext, NativeGLContextMethods, GLContextDispatcher};
 use offscreen_gl_context::{OSMesaContext, OSMesaContextHandle};
 use offscreen_gl_context::{ColorAttachmentType, GLContextAttributes, GLLimits};
-use webrender_traits::{WebGLCommand, DeviceIntSize};
+use super::webgl_thread::WebGLImpl;
 
 pub enum GLContextFactory {
     Native(NativeGLContextHandle),
@@ -27,12 +29,12 @@ impl GLContextFactory {
     }
 
     pub fn new_context(&self,
-                       size: DeviceIntSize,
+                       size: Size2D<i32>,
                        attributes: GLContextAttributes,
                        dispatcher: Option<Box<GLContextDispatcher>>) -> Result<GLContextWrapper, &'static str> {
         match *self {
-            GLContextHandleWrapper::Native(ref handle) => {
-                let ctx = GLContext::<NativeGLContext>::new_shared_with_dispatcher(size.to_untyped(),
+            GLContextFactory::Native(ref handle) => {
+                let ctx = GLContext::<NativeGLContext>::new_shared_with_dispatcher(size,
                                                                                    attributes,
                                                                                    ColorAttachmentType::Texture,
                                                                                    gl::GlType::default(),
@@ -40,7 +42,7 @@ impl GLContextFactory {
                                                                                    dispatcher);
                 ctx.map(GLContextWrapper::Native)
             }
-            GLContextHandleWrapper::OSMesa(ref handle) => {
+            GLContextFactory::OSMesa(ref handle) => {
                 let ctx = GLContext::<OSMesaContext>::new_shared_with_dispatcher(size.to_untyped(),
                                                                                  attributes,
                                                                                  ColorAttachmentType::Texture,
@@ -84,15 +86,15 @@ impl GLContextWrapper {
     pub fn apply_command(&self, cmd: WebGLCommand) {
         match *self {
             GLContextWrapper::Native(ref ctx) => {
-                cmd.apply(ctx);
+                WebGLImpl::apply(ctx, cmd);
             }
             GLContextWrapper::OSMesa(ref ctx) => {
-                cmd.apply(ctx);
+                WebGLImpl::apply(ctx, cmd);
             }
         }
     }
 
-    pub fn get_info(&self) -> (DeviceIntSize, u32, GLLimits) {
+    pub fn get_info(&self) -> (Size2D<i32>, u32, GLLimits) {
         match *self {
             GLContextWrapper::Native(ref ctx) => {
                 let (real_size, texture_id) = {
@@ -102,7 +104,7 @@ impl GLContextWrapper {
 
                 let limits = ctx.borrow_limits().clone();
 
-                (DeviceIntSize::from_untyped(&real_size), texture_id, limits)
+                (real_size, texture_id, limits)
             }
             GLContextWrapper::OSMesa(ref ctx) => {
                 let (real_size, texture_id) = {
@@ -112,18 +114,18 @@ impl GLContextWrapper {
 
                 let limits = ctx.borrow_limits().clone();
 
-                (DeviceIntSize::from_untyped(&real_size), texture_id, limits)
+                (real_size, texture_id, limits)
             }
         }
     }
 
-    pub fn resize(&mut self, size: &DeviceIntSize) -> Result<(), &'static str> {
+    pub fn resize(&mut self, size: Size2D<i32>) -> Result<(), &'static str> {
         match *self {
             GLContextWrapper::Native(ref mut ctx) => {
-                ctx.resize(size.to_untyped())
+                ctx.resize(size)
             }
             GLContextWrapper::OSMesa(ref mut ctx) => {
-                ctx.resize(size.to_untyped())
+                ctx.resize(size)
             }
         }
     }

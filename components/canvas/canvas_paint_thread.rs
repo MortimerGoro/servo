@@ -8,7 +8,8 @@ use azure::azure_hl::{BackendType, DrawOptions, DrawTarget, Pattern, StrokeOptio
 use azure::azure_hl::{Color, ColorPattern, DrawSurfaceOptions, Filter, PathBuilder};
 use azure::azure_hl::{ExtendMode, GradientStop, LinearGradientPattern, RadialGradientPattern};
 use azure::azure_hl::SurfacePattern;
-use canvas_traits::*;
+use canvas_traits::{CanvasData, FromLayoutMsg, FromScriptMsg};
+use canvas_traits::canvas::*;
 use cssparser::RGBA;
 use euclid::{Transform2D, Point2D, Vector2D, Rect, Size2D};
 use ipc_channel::ipc::{self, IpcSender};
@@ -18,39 +19,6 @@ use std::mem;
 use std::sync::Arc;
 use std::thread;
 use webrender_traits;
-
-#[derive(Clone, Deserialize, Serialize)] 
-pub enum CanvasMsg { 
-    Canvas2d(Canvas2dMsg),
-    Common(CanvasCommonMsg), 
-    FromLayout(FromLayoutMsg),
-    FromScript(FromScriptMsg),
-    Resize,
-    Close,
-} 
-
- 
-#[derive(Clone, Deserialize, Serialize)] 
-pub enum CanvasData { 
-    Image(CanvasImageData), 
-    WebGL(WebGLContextId), 
-} 
- 
-#[derive(Clone, Deserialize, Serialize)] 
-pub struct CanvasImageData { 
-    pub image_key: webrender_traits::ImageKey, 
-} 
- 
-#[derive(Clone, Deserialize, Serialize)] 
-pub enum FromLayoutMsg { 
-    SendData(IpcSender<CanvasData>), 
-} 
- 
-#[derive(Clone, Deserialize, Serialize)] 
-pub enum FromScriptMsg { 
-    SendPixels(IpcSender<Option<Vec<u8>>>), 
-} 
-
 
 impl<'a> CanvasPaintThread<'a> {
     /// It reads image data from the canvas
@@ -232,7 +200,7 @@ impl<'a> CanvasPaintThread<'a> {
                     }
                     CanvasMsg::FromLayout(message) => {
                         match message {
-                            FromLayoutMsg::SendData(chan) => {
+                            FromLayoutMsg::SendData(_id, chan) => {
                                 painter.send_data(chan)
                             }
                         }

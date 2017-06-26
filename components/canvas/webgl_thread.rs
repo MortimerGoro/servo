@@ -3,47 +3,65 @@
  his
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use canvas_traits::{CanvasData, FromLayoutMsg, FromScriptMsg};
+use canvas_traits::webgl::*;
+use euclid::Size2D;
+use gleam::gl;
+use ipc_channel::ipc::IpcSender;
+use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLContextMethods};
 use std::collections::HashMap;
+use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
 
 struct WebGLThread {
     factory: GLContextFactory,
     contexts: HashMap<WebGLContextId, GLContextWrapper>,
+    cached_context_info: HashMap<WebGLContextId, (u32, Size2D<i32>)>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     next_webgl_id: usize,
-    vr_compositor: Option<Box<VRCompositorHandler>>,
+    webvr_compositor: Option<Box<WebVRRenderHandler>>,
 }
 
 impl WebGLThread {
-    fn new(factory: GLContextFactory, vr_compositor: Option<Box<VRCompositorHandler>>) {
+    fn new(factory: GLContextFactory,
+           webvr_compositor: Option<Box<WebVRRenderHandler>>) -> Self {
         WebGLThread {
             factory: factory,
             contexts: HashMap::new(),
+            cached_context_info: HashMap::new(),
             current_bound_webgl_context_id: None,
             next_webgl_id: 0,
-            vr_compositor: vr_compositor
+            webvr_compositor: webvr_compositor
         }
     }
 
-    /// Creates a new `WebGLThread` and returns an `IpcSender` to
+    /// Creates a new `WebGLThread` and returns a Sender to
     /// communicate with it.
-    pub fn start(factory: GLContextFactory) -> IpcSender<WebGLMsg> {
-        let (sender, receiver) = ipc::channel::<WebGLMsg>().unwrap();
-        let (result_chan, result_port) = channel();
+    pub fn start(webgl_factory: GLContextFactory,
+                 webvr_compositor: Option<Box<WebVRRenderHandler>>)
+                 -> WebGLSender<WebGLMsg> {
+        let (sender, receiver) = webgl_channel::<WebGLMsg>().unwrap();
+        let result = sender.clone();
         thread::Builder::new().name("WebGLThread".to_owned()).spawn(move || {
-            let renderer = WebGLThread::new(factory);
+            let mut renderer = WebGLThread::new(webgl_factory, webvr_compositor);
             loop {
                 match receiver.recv().unwrap() {
-                    WebGLMsg::Command(ctx_id, command) => {
-                        painter.handle_webgl_message(ctx_id, command),
-                    },
                     WebGLMsg::CreateContext(size, attributes, result_sender) => {
                         let result = renderer.create_webgl_context(size, attributes);
-                        result_sender.send(result.map((id, limits) {
-                            (WebGLCommandSender::new(id, sender.clone()), limits)
-                        }).unwrap();
-                    }
+                        result_sender.send(result.map(|(id, limits)| 
+                            (WebGLMsgSender::new(id, sender.clone()), limits)
+                        )).unwrap();
+                    },
+                    WebGLMsg::ResizeContext(ctx_id, size) => {
+                        renderer.resize(ctx_id, size);
+                    },
+                    WebGLMsg::WebGLCommand(ctx_id, command) => {
+                        renderer.handle_webgl_command(ctx_id, command);
+                    },
+                    WebGLMsg::WebVRCommand(ctx_id, command) => {
+                        renderer.handle_webvr_command(ctx_id, command);
+                    },
+
                     WebGLMsg::FromScript(message) => {
                         match message {
                             FromScriptMsg::SendPixels(chan) =>{
@@ -52,22 +70,22 @@ impl WebGLThread {
                                 chan.send(None).unwrap();
                             }
                         }
-                    }
+                    },
                     WebGLMsg::FromLayout(message) => {
                         match message {
-                            FromLayoutMsg::SendData(chan) =>
-                                renderer.send_data(chan),
+                            FromLayoutMsg::SendData(id, chan) =>
+                                renderer.send_data(id, chan),
                         }
                     }
                 }
             }
         }).expect("Thread spawning failed");
 
-        sender
+        result
     }
 
-    fn handle_webgl_command(ctx_id: WebGLContextId, command: WebGLCommand) {
-        let ctx = &self.webgl_contexts[&context_id];
+    fn handle_webgl_command(&mut self, context_id: WebGLContextId, command: WebGLCommand) {
+        let ctx = &self.contexts[&context_id];
         if Some(context_id) != self.current_bound_webgl_context_id {
             ctx.make_current();
             self.current_bound_webgl_context_id = Some(context_id);
@@ -75,21 +93,29 @@ impl WebGLThread {
         ctx.apply_command(command);
     }
 
-    fn handle_vr_command(ctx_id, WebGLContextId, command: VRComposit) {
+    fn handle_webvr_command(&mut self, context_id: WebGLContextId, command: WebVRCommand) {
         if Some(context_id) != self.current_bound_webgl_context_id {
-            self.webgl_contexts[&context_id].make_current();
+            self.contexts[&context_id].make_current();
             self.current_bound_webgl_context_id = Some(context_id);
         }
-        self.handle_vr_compositor_command(context_id, command);
+
+        let texture = match command {
+            WebVRCommand::SubmitFrame(..) => {
+                self.cached_context_info.get(&context_id)
+            },
+            _ => None
+        };
+        self.webvr_compositor.as_mut().unwrap().handle(command, texture.map(|d| *d));
     }
 
-    fn create_webgl_context(size: Size2D<i32>,
-                            attributes:: GLContextAttributes)
+    fn create_webgl_context(&mut self,
+                            size: Size2D<i32>,
+                            attributes: GLContextAttributes)
                             -> Result<(WebGLContextId, GLLimits), String> {
         // TODO
         let dispatcher = None;
 
-        let result = wrapper.new_context(size, attributes, dispatcher);
+        let result = self.factory.new_context(size, attributes, dispatcher);
         // Creating a new GLContext may make the current bound context_id dirty.
         // Clear it to ensure that  make_current() is called in subsequent commands.
         self.current_bound_webgl_context_id = None;
@@ -99,23 +125,49 @@ impl WebGLThread {
                 let id = WebGLContextId(self.next_webgl_id);
                 self.next_webgl_id += 1;
                 let (real_size, texture_id, limits) = ctx.get_info();
-                self.webgl_contexts.insert(id, ctx);
-                let sender = WebGLCommandSender {
+                self.contexts.insert(id, ctx);
+                self.cached_context_info.insert(id, (texture_id, real_size));
 
-                }
-                tx.send(Ok((id, limits))).unwrap();
+                Ok((id, limits))
             },
             Err(msg) => {
-                tx.send(Err(msg.to_owned())).unwrap();
+                Err(msg.to_owned())
+            }
+        }
+    }
+
+    fn send_data(&mut self, id: Option<WebGLContextId>, chan: IpcSender<CanvasData>) {
+        //TODDO readback mode
+       let info = self.cached_context_info[&id.unwrap()];
+       // Send WebGL texture info
+       chan.send(CanvasData::WebGL(info.0)).unwrap()
+    }
+
+    #[allow(unsafe_code)]
+    fn resize(&mut self, context_id: WebGLContextId, size: Size2D<i32>) {
+        let ctx = self.contexts.get_mut(&context_id).unwrap();
+        if Some(context_id) != self.current_bound_webgl_context_id {
+            ctx.make_current();
+            self.current_bound_webgl_context_id = Some(context_id);
+        }
+        match ctx.resize(size) {
+            Ok(_) => {
+                // Update webgl texture size. Texture id may change too.
+                let (real_size, texture_id, _) = ctx.get_info();
+                self.cached_context_info.insert(context_id, (texture_id, real_size));
+            },
+            Err(msg) => {
+                error!("Error resizing WebGLContext: {}", msg);
             }
         }
     }
 }
 
-impl WebGLCommand {
-    /// NOTE: This method consumes the command
-    pub fn apply<Native: NativeGLContextMethods>(self, ctx: &GLContext<Native>) {
-        match self {
+pub struct WebGLImpl;
+
+impl WebGLImpl {
+    pub fn apply<Native: NativeGLContextMethods>(ctx: &GLContext<Native>, command: WebGLCommand) {
+        match command {
             WebGLCommand::GetContextAttributes(sender) =>
                 sender.send(*ctx.borrow_attributes()).unwrap(),
             WebGLCommand::ActiveTexture(target) =>
@@ -356,7 +408,7 @@ impl WebGLCommand {
     }
 
     fn read_pixels(gl: &gl::Gl, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32,
-                   chan: MsgSender<Vec<u8>>) {
+                   chan: WebGLSender<Vec<u8>>) {
       let result = gl.read_pixels(x, y, width, height, format, pixel_type);
       chan.send(result).unwrap()
     }
@@ -364,7 +416,7 @@ impl WebGLCommand {
     fn active_attrib(gl: &gl::Gl,
                      program_id: WebGLProgramId,
                      index: u32,
-                     chan: MsgSender<WebGLResult<(i32, u32, String)>>) {
+                     chan: WebGLSender<WebGLResult<(i32, u32, String)>>) {
         let result = if index >= gl.get_program_iv(program_id.get(), gl::ACTIVE_ATTRIBUTES) as u32 {
             Err(WebGLError::InvalidValue)
         } else {
@@ -376,7 +428,7 @@ impl WebGLCommand {
     fn active_uniform(gl: &gl::Gl,
                       program_id: WebGLProgramId,
                       index: u32,
-                      chan: MsgSender<WebGLResult<(i32, u32, String)>>) {
+                      chan: WebGLSender<WebGLResult<(i32, u32, String)>>) {
         let result = if index >= gl.get_program_iv(program_id.get(), gl::ACTIVE_UNIFORMS) as u32 {
             Err(WebGLError::InvalidValue)
         } else {
@@ -388,7 +440,7 @@ impl WebGLCommand {
     fn attrib_location(gl: &gl::Gl,
                        program_id: WebGLProgramId,
                        name: String,
-                       chan: MsgSender<Option<i32>> ) {
+                       chan: WebGLSender<Option<i32>> ) {
         let attrib_location = gl.get_attrib_location(program_id.get(), &name);
 
         let attrib_location = if attrib_location == -1 {
@@ -402,7 +454,7 @@ impl WebGLCommand {
 
     fn parameter(gl: &gl::Gl,
                  param_id: u32,
-                 chan: MsgSender<WebGLResult<WebGLParameter>>) {
+                 chan: WebGLSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::ACTIVE_TEXTURE |
             gl::ALPHA_BITS |
@@ -523,7 +575,7 @@ impl WebGLCommand {
         chan.send(result).unwrap();
     }
 
-    fn finish(gl: &gl::Gl, chan: MsgSender<()>) {
+    fn finish(gl: &gl::Gl, chan: WebGLSender<()>) {
         gl.finish();
         chan.send(()).unwrap();
     }
@@ -531,7 +583,7 @@ impl WebGLCommand {
     fn vertex_attrib(gl: &gl::Gl,
                      index: u32,
                      pname: u32,
-                     chan: MsgSender<WebGLResult<WebGLParameter>>) {
+                     chan: WebGLSender<WebGLResult<WebGLParameter>>) {
         let result = if index >= gl.get_integer_v(gl::MAX_VERTEX_ATTRIBS) as u32 {
             Err(WebGLError::InvalidValue)
         } else {
@@ -556,7 +608,7 @@ impl WebGLCommand {
     fn vertex_attrib_offset(gl: &gl::Gl,
                             index: u32,
                             pname: u32,
-                            chan: MsgSender<WebGLResult<isize>>) {
+                            chan: WebGLSender<WebGLResult<isize>>) {
         let result = match pname {
                 gl::VERTEX_ATTRIB_ARRAY_POINTER => Ok(gl.get_vertex_attrib_pointer_v(index, pname)),
                 _ => Err(WebGLError::InvalidEnum),
@@ -568,7 +620,7 @@ impl WebGLCommand {
     fn buffer_parameter(gl: &gl::Gl,
                         target: u32,
                         param_id: u32,
-                        chan: MsgSender<WebGLResult<WebGLParameter>>) {
+                        chan: WebGLSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::BUFFER_SIZE |
             gl::BUFFER_USAGE =>
@@ -582,7 +634,7 @@ impl WebGLCommand {
     fn program_parameter(gl: &gl::Gl,
                          program_id: WebGLProgramId,
                          param_id: u32,
-                         chan: MsgSender<WebGLResult<WebGLParameter>>) {
+                         chan: WebGLSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::DELETE_STATUS |
             gl::LINK_STATUS |
@@ -601,7 +653,7 @@ impl WebGLCommand {
     fn shader_parameter(gl: &gl::Gl,
                         shader_id: WebGLShaderId,
                         param_id: u32,
-                        chan: MsgSender<WebGLResult<WebGLParameter>>) {
+                        chan: WebGLSender<WebGLResult<WebGLParameter>>) {
         let result = match param_id {
             gl::SHADER_TYPE =>
                 Ok(WebGLParameter::Int(gl.get_shader_iv(shader_id.get(), param_id))),
@@ -617,7 +669,7 @@ impl WebGLCommand {
     fn shader_precision_format(gl: &gl::Gl,
                                shader_type: u32,
                                precision_type: u32,
-                               chan: MsgSender<WebGLResult<(i32, i32, i32)>>) {
+                               chan: WebGLSender<WebGLResult<(i32, i32, i32)>>) {
        
         let result = match precision_type {
             gl::LOW_FLOAT |
@@ -636,14 +688,14 @@ impl WebGLCommand {
         chan.send(result).unwrap();
     }
 
-    fn get_extensions(gl: &gl::Gl, chan: MsgSender<String>) {
+    fn get_extensions(gl: &gl::Gl, chan: WebGLSender<String>) {
         chan.send(gl.get_string(gl::EXTENSIONS)).unwrap();
     }
 
     fn uniform_location(gl: &gl::Gl,
                         program_id: WebGLProgramId,
                         name: String,
-                        chan: MsgSender<Option<i32>>) {
+                        chan: WebGLSender<Option<i32>>) {
         let location = gl.get_uniform_location(program_id.get(), &name);
         let location = if location == -1 {
             None
@@ -655,17 +707,18 @@ impl WebGLCommand {
     }
 
 
-    fn shader_info_log(gl: &gl::Gl, shader_id: WebGLShaderId, chan: MsgSender<String>) {
+    fn shader_info_log(gl: &gl::Gl, shader_id: WebGLShaderId, chan: WebGLSender<String>) {
         let log = gl.get_shader_info_log(shader_id.get());
         chan.send(log).unwrap();
     }
 
-    fn program_info_log(gl: &gl::Gl, program_id: WebGLProgramId, chan: MsgSender<String>) {
+    fn program_info_log(gl: &gl::Gl, program_id: WebGLProgramId, chan: WebGLSender<String>) {
         let log = gl.get_program_info_log(program_id.get());
         chan.send(log).unwrap();
     }
 
-    fn create_buffer(gl: &gl::Gl, chan: MsgSender<Option<WebGLBufferId>>) {
+    #[allow(unsafe_code)]
+    fn create_buffer(gl: &gl::Gl, chan: WebGLSender<Option<WebGLBufferId>>) {
         let buffer = gl.gen_buffers(1)[0];
         let buffer = if buffer == 0 {
             None
@@ -675,7 +728,8 @@ impl WebGLCommand {
         chan.send(buffer).unwrap();
     }
 
-    fn create_framebuffer(gl: &gl::Gl, chan: MsgSender<Option<WebGLFramebufferId>>) {
+    #[allow(unsafe_code)]
+    fn create_framebuffer(gl: &gl::Gl, chan: WebGLSender<Option<WebGLFramebufferId>>) {
         let framebuffer = gl.gen_framebuffers(1)[0];
         let framebuffer = if framebuffer == 0 {
             None
@@ -685,8 +739,8 @@ impl WebGLCommand {
         chan.send(framebuffer).unwrap();
     }
 
-
-    fn create_renderbuffer(gl: &gl::Gl, chan: MsgSender<Option<WebGLRenderbufferId>>) {
+    #[allow(unsafe_code)]
+    fn create_renderbuffer(gl: &gl::Gl, chan: WebGLSender<Option<WebGLRenderbufferId>>) {
         let renderbuffer = gl.gen_renderbuffers(1)[0];
         let renderbuffer = if renderbuffer == 0 {
             None
@@ -696,7 +750,8 @@ impl WebGLCommand {
         chan.send(renderbuffer).unwrap();
     }
 
-    fn create_texture(gl: &gl::Gl, chan: MsgSender<Option<WebGLTextureId>>) {
+    #[allow(unsafe_code)]
+    fn create_texture(gl: &gl::Gl, chan: WebGLSender<Option<WebGLTextureId>>) {
         let texture = gl.gen_textures(1)[0];
         let texture = if texture == 0 {
             None
@@ -706,8 +761,8 @@ impl WebGLCommand {
         chan.send(texture).unwrap();
     }
 
-
-    fn create_program(gl: &gl::Gl, chan: MsgSender<Option<WebGLProgramId>>) {
+    #[allow(unsafe_code)]
+    fn create_program(gl: &gl::Gl, chan: WebGLSender<Option<WebGLProgramId>>) {
         let program = gl.create_program();
         let program = if program == 0 {
             None
@@ -717,7 +772,8 @@ impl WebGLCommand {
         chan.send(program).unwrap();
     }
 
-    fn create_shader(gl: &gl::Gl, shader_type: u32, chan: MsgSender<Option<WebGLShaderId>>) {
+    #[allow(unsafe_code)]
+    fn create_shader(gl: &gl::Gl, shader_type: u32, chan: WebGLSender<Option<WebGLShaderId>>) {
         let shader = gl.create_shader(shader_type);
         let shader = if shader == 0 {
             None
@@ -727,7 +783,8 @@ impl WebGLCommand {
         chan.send(shader).unwrap();
     }
 
-    fn create_vertex_array(gl: &gl::Gl, chan: MsgSender<Option<WebGLVertexArrayId>>) {
+    #[allow(unsafe_code)]
+    fn create_vertex_array(gl: &gl::Gl, chan: WebGLSender<Option<WebGLVertexArrayId>>) {
         let vao = gl.gen_vertex_arrays(1)[0];
         let vao = if vao == 0 {
             None
