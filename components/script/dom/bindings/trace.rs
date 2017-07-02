@@ -32,6 +32,8 @@
 use app_units::Au;
 use canvas_traits::canvas::{CanvasGradientStop, LinearGradientStyle, RadialGradientStyle};
 use canvas_traits::canvas::{CompositionOrBlending, LineCapStyle, LineJoinStyle, RepetitionStyle};
+use canvas_traits::webgl::{WebGLBufferId, WebGLError, WebGLFramebufferId, WebGLMsgSender, WebGLProgramId};
+use canvas_traits::webgl::{WebGLRenderbufferId, WebGLShaderId, WebGLTextureId, WebGLVertexArrayId};
 use cssparser::RGBA;
 use devtools_traits::{CSSError, TimelineMarkerType, WorkerId};
 use dom::abstractworker::SharedRt;
@@ -104,8 +106,6 @@ use style::stylesheets::keyframes_rule::Keyframe;
 use style::values::specified::Length;
 use time::Duration;
 use uuid::Uuid;
-use webrender_traits::{WebGLBufferId, WebGLError, WebGLFramebufferId, WebGLProgramId};
-use webrender_traits::{WebGLRenderbufferId, WebGLShaderId, WebGLTextureId, WebGLVertexArrayId};
 use webvr_traits::WebVRGamepadHand;
 
 /// A trait to allow tracing (only) DOM objects.
@@ -383,6 +383,7 @@ unsafe_no_jsmanaged_fields!(PathBuf);
 unsafe_no_jsmanaged_fields!(CSSErrorReporter);
 unsafe_no_jsmanaged_fields!(WebGLBufferId);
 unsafe_no_jsmanaged_fields!(WebGLFramebufferId);
+unsafe_no_jsmanaged_fields!(WebGLMsgSender);
 unsafe_no_jsmanaged_fields!(WebGLProgramId);
 unsafe_no_jsmanaged_fields!(WebGLRenderbufferId);
 unsafe_no_jsmanaged_fields!(WebGLShaderId);

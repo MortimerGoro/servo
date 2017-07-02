@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // https://www.khronos.org/registry/webgl/specs/latest/1.0/webgl.idl
-use canvas_traits::canvas::CanvasMsg;
+use canvas_traits::webgl::{webgl_channel, WebGLCommand, WebGLError};
+use canvas_traits::webgl::{WebGLMsgSender, WebGLParameter, WebGLProgramId, WebGLResult};
 use dom::bindings::codegen::Bindings::WebGLProgramBinding;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as constants;
 use dom::bindings::js::{MutNullableJS, Root};
@@ -17,9 +18,6 @@ use dom::window::Window;
 use dom_struct::dom_struct;
 use ipc_channel::ipc::IpcSender;
 use std::cell::Cell;
-use webrender_traits;
-use webrender_traits::{WebGLCommand, WebGLError, WebGLParameter};
-use webrender_traits::{WebGLProgramId, WebGLResult};
 
 #[dom_struct]
 pub struct WebGLProgram {
@@ -31,11 +29,11 @@ pub struct WebGLProgram {
     fragment_shader: MutNullableJS<WebGLShader>,
     vertex_shader: MutNullableJS<WebGLShader>,
     #[ignore_heap_size_of = "Defined in ipc-channel"]
-    renderer: IpcSender<CanvasMsg>,
+    renderer: WebGLMsgSender,
 }
 
 impl WebGLProgram {
-    fn new_inherited(renderer: IpcSender<CanvasMsg>,
+    fn new_inherited(renderer: WebGLMsgSender,
                      id: WebGLProgramId)
                      -> WebGLProgram {
         WebGLProgram {
@@ -50,17 +48,17 @@ impl WebGLProgram {
         }
     }
 
-    pub fn maybe_new(window: &Window, renderer: IpcSender<CanvasMsg>)
+    pub fn maybe_new(window: &Window, renderer: WebGLMsgSender)
                      -> Option<Root<WebGLProgram>> {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
-        renderer.send(CanvasMsg::WebGL(WebGLCommand::CreateProgram(sender))).unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
+        renderer.send(WebGLCommand::CreateProgram(sender)).unwrap();
 
         let result = receiver.recv().unwrap();
         result.map(|program_id| WebGLProgram::new(window, renderer, program_id))
     }
 
     pub fn new(window: &Window,
-               renderer: IpcSender<CanvasMsg>,
+               renderer: WebGLMsgSender,
                id: WebGLProgramId)
                -> Root<WebGLProgram> {
         reflect_dom_object(box WebGLProgram::new_inherited(renderer, id),
@@ -79,7 +77,7 @@ impl WebGLProgram {
     pub fn delete(&self) {
         if !self.is_deleted.get() {
             self.is_deleted.set(true);
-            let _ = self.renderer.send(CanvasMsg::WebGL(WebGLCommand::DeleteProgram(self.id)));
+            let _ = self.renderer.send(WebGLCommand::DeleteProgram(self.id));
 
             if let Some(shader) = self.fragment_shader.get() {
                 shader.decrement_attached_counter();
@@ -118,7 +116,7 @@ impl WebGLProgram {
         }
 
         self.linked.set(true);
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::LinkProgram(self.id))).unwrap();
+        self.renderer.send(WebGLCommand::LinkProgram(self.id)).unwrap();
         Ok(())
     }
 
@@ -131,7 +129,7 @@ impl WebGLProgram {
             return Err(WebGLError::InvalidOperation);
         }
 
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::UseProgram(self.id))).unwrap();
+        self.renderer.send(WebGLCommand::UseProgram(self.id)).unwrap();
         Ok(())
     }
 
@@ -140,7 +138,7 @@ impl WebGLProgram {
         if self.is_deleted() {
             return Err(WebGLError::InvalidOperation);
         }
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::ValidateProgram(self.id))).unwrap();
+        self.renderer.send(WebGLCommand::ValidateProgram(self.id)).unwrap();
         Ok(())
     }
 
@@ -167,7 +165,7 @@ impl WebGLProgram {
         shader_slot.set(Some(shader));
         shader.increment_attached_counter();
 
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::AttachShader(self.id, shader.id()))).unwrap();
+        self.renderer.send(WebGLCommand::AttachShader(self.id, shader.id())).unwrap();
 
         Ok(())
     }
@@ -197,7 +195,7 @@ impl WebGLProgram {
         shader_slot.set(None);
         shader.decrement_attached_counter();
 
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::DetachShader(self.id, shader.id()))).unwrap();
+        self.renderer.send(WebGLCommand::DetachShader(self.id, shader.id())).unwrap();
 
         Ok(())
     }
@@ -217,7 +215,7 @@ impl WebGLProgram {
         }
 
         self.renderer
-            .send(CanvasMsg::WebGL(WebGLCommand::BindAttribLocation(self.id, index, String::from(name))))
+            .send(WebGLCommand::BindAttribLocation(self.id, index, String::from(name)))
             .unwrap();
         Ok(())
     }
@@ -226,9 +224,9 @@ impl WebGLProgram {
         if self.is_deleted() {
             return Err(WebGLError::InvalidValue);
         }
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.renderer
-            .send(CanvasMsg::WebGL(WebGLCommand::GetActiveUniform(self.id, index, sender)))
+            .send(WebGLCommand::GetActiveUniform(self.id, index, sender))
             .unwrap();
 
         receiver.recv().unwrap().map(|(size, ty, name)|
@@ -240,9 +238,9 @@ impl WebGLProgram {
         if self.is_deleted() {
             return Err(WebGLError::InvalidValue);
         }
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.renderer
-            .send(CanvasMsg::WebGL(WebGLCommand::GetActiveAttrib(self.id, index, sender)))
+            .send(WebGLCommand::GetActiveAttrib(self.id, index, sender))
             .unwrap();
 
         receiver.recv().unwrap().map(|(size, ty, name)|
@@ -267,9 +265,9 @@ impl WebGLProgram {
             return Ok(None);
         }
 
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.renderer
-            .send(CanvasMsg::WebGL(WebGLCommand::GetAttribLocation(self.id, String::from(name), sender)))
+            .send(WebGLCommand::GetAttribLocation(self.id, String::from(name), sender))
             .unwrap();
         Ok(receiver.recv().unwrap())
     }
@@ -288,9 +286,9 @@ impl WebGLProgram {
             return Ok(None);
         }
 
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.renderer
-            .send(CanvasMsg::WebGL(WebGLCommand::GetUniformLocation(self.id, String::from(name), sender)))
+            .send(WebGLCommand::GetUniformLocation(self.id, String::from(name), sender))
             .unwrap();
         Ok(receiver.recv().unwrap())
     }
@@ -309,15 +307,15 @@ impl WebGLProgram {
                 return Ok("One or more shaders failed to compile".to_string());
             }
         }
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::GetProgramInfoLog(self.id, sender))).unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
+        self.renderer.send(WebGLCommand::GetProgramInfoLog(self.id, sender)).unwrap();
         Ok(receiver.recv().unwrap())
     }
 
     /// glGetProgramParameter
     pub fn parameter(&self, param_id: u32) -> WebGLResult<WebGLParameter> {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::GetProgramParameter(self.id, param_id, sender))).unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
+        self.renderer.send(WebGLCommand::GetProgramParameter(self.id, param_id, sender)).unwrap();
         receiver.recv().unwrap()
     }
 }

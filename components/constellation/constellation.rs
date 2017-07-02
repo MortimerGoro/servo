@@ -72,7 +72,7 @@ use browsingcontext::{FullyActiveBrowsingContextsIterator, AllBrowsingContextsIt
 use canvas::canvas_paint_thread::CanvasPaintThread;
 use canvas::webgl_thread::WebGLThread;
 use canvas_traits::canvas::CanvasMsg;
-use canvas_traits::webgl::{WebGLMsg, WebGLSender};
+use canvas_traits::webgl::{WebGLMsg, WebGLMsgSender, WebGLSender};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use compositing::SendableFrameTree;
 use compositing::compositor_thread::CompositorProxy;
@@ -1124,9 +1124,9 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
                 debug!("constellation got create-canvas-paint-thread message");
                 self.handle_create_canvas_paint_thread_msg(&size, sender)
             }
-            FromScriptMsg::CreateWebGLPaintThread(size, attributes, sender) => {
+            FromScriptMsg::CreateWebGLContext(size, attributes, sender) => {
                 debug!("constellation got create-WebGL-paint-thread message");
-                self.handle_create_webgl_paint_thread_msg(&size, attributes, sender)
+                self.handle_create_webgl_context_msg(&size, attributes, sender)
             }
             FromScriptMsg::NodeStatus(message) => {
                 debug!("constellation got NodeStatus message");
@@ -2081,17 +2081,18 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
         }
     }
 
-    fn handle_create_webgl_paint_thread_msg(
+    fn handle_create_webgl_context_msg(
             &mut self,
             size: &Size2D<i32>,
             attributes: GLContextAttributes,
-            response_sender: IpcSender<Result<(IpcSender<CanvasMsg>, GLLimits), String>>) {
-        let webrender_api = self.webrender_api_sender.clone();
-        let response = WebGLPaintThread::start(*size, attributes, webrender_api);
+            response_sender: IpcSender<Result<(WebGLMsgSender, GLLimits), String>>) {
+        
+        // TODO
+        // self.webvr_thread = WebGLThread::start(*size, attributes, webrender_api);
 
-        if let Err(e) = response_sender.send(response) {
-            warn!("Create WebGL paint thread response failed ({})", e);
-        }
+        // if let Err(e) = response_sender.send(response) {
+        //    warn!("Create WebGL paint thread response failed ({})", e);
+        // }
     }
 
     fn handle_webdriver_msg(&mut self, msg: WebDriverCommandMsg) {

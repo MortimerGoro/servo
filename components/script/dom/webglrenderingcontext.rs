@@ -4,7 +4,9 @@
 
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use canvas_traits::canvas::{byte_swap, multiply_u8_pixel};
-use canvas_traits::webgl::{WebGLMsgSender, WebGLCommand};
+use canvas_traits::webgl::{webgl_channel, WebGLCommand, WebGLError, WebGLFramebufferBindingRequest};
+use canvas_traits::webgl::{WebGLMsgSender, WebGLParameter, WebVRCommand};
+use canvas_traits::webgl::WebGLError::*;
 use core::cell::Ref;
 use core::iter::FromIterator;
 use core::nonzero::NonZero;
@@ -55,9 +57,6 @@ use script_traits::ScriptMsg as ConstellationMsg;
 use servo_config::prefs::PREFS;
 use std::cell::Cell;
 use std::collections::HashMap;
-use webrender_traits;
-use webrender_traits::{WebGLCommand, WebGLError, WebGLFramebufferBindingRequest, WebGLParameter};
-use webrender_traits::WebGLError::*;
 
 type ImagePixelResult = Result<(Vec<u8>, Size2D<i32>, bool), ()>;
 pub const MAX_UNIFORM_AND_ATTRIBUTE_LEN: usize = 256;
@@ -93,7 +92,7 @@ macro_rules! handle_object_deletion {
             }
 
             if let Some(command) = $unbind_command {
-                $self_.send_message(command));
+                $self_.send_command(command);
             }
         }
     };
@@ -139,7 +138,7 @@ pub struct WebGLRenderingContext {
     #[ignore_heap_size_of = "Defined in offscreen_gl_context"]
     limits: GLLimits,
     canvas: JS<HTMLCanvasElement>,
-    #[ignore_heap_size_of = "Defined in webrender_traits"]
+    #[ignore_heap_size_of = "Defined in canvas_traits"]
     last_error: Cell<Option<WebGLError>>,
     texture_unpacking_settings: Cell<TextureUnpacking>,
     texture_unpacking_alignment: Cell<u32>,
@@ -252,7 +251,7 @@ impl WebGLRenderingContext {
     }
 
     pub fn recreate(&self, size: Size2D<i32>) {
-        self.webgl_sender.resize(size);
+        self.webgl_sender.send_resize(size);
 
         // ClearColor needs to be restored because after a resize the GLContext is recreated
         // and the framebuffer is cleared using the default black transparent color.
@@ -273,7 +272,12 @@ impl WebGLRenderingContext {
 
     #[inline]
     pub fn send_command(&self, command: WebGLCommand) {
-        self.webgl_sender.send(command);
+        self.webgl_sender.send(command).unwrap();
+    }
+
+    #[inline]
+    pub fn send_vr_command(&self, command: WebVRCommand) {
+        self.webgl_sender.send_vr(command).unwrap();
     }
 
     pub fn get_extension_manager<'a>(&'a self) -> &'a WebGLExtensions {
@@ -1021,7 +1025,7 @@ impl WebGLRenderingContext {
     }
 
     fn get_gl_extensions(&self) -> String {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetExtensions(sender));
         receiver.recv().unwrap()
     }
@@ -1029,7 +1033,7 @@ impl WebGLRenderingContext {
 
 impl Drop for WebGLRenderingContext {
     fn drop(&mut self) {
-        self.send_command(.send(CanvasMsg::Common(CanvasCommonMsg::Close)).unwrap();
+        self.webgl_sender.send_remove();
     }
 }
 
@@ -1090,21 +1094,21 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.11
     fn Finish(&self) {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::Finish(sender));
         receiver.recv().unwrap()
     }
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.1
     fn DrawingBufferWidth(&self) -> i32 {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::DrawingBufferWidth(sender));
         receiver.recv().unwrap()
     }
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.1
     fn DrawingBufferHeight(&self) -> i32 {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::DrawingBufferHeight(sender));
         receiver.recv().unwrap()
     }
@@ -1112,7 +1116,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
     #[allow(unsafe_code)]
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.5
     unsafe fn GetBufferParameter(&self, _cx: *mut JSContext, target: u32, parameter: u32) -> JSVal {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetBufferParameter(target, parameter, sender));
 
         match handle_potential_webgl_error!(self, receiver.recv().unwrap(), WebGLParameter::Invalid) {
@@ -1180,7 +1184,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             }
         }
 
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetParameter(parameter, sender));
 
         match handle_potential_webgl_error!(self, receiver.recv().unwrap(), WebGLParameter::Invalid) {
@@ -1217,11 +1221,12 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.2
     fn GetContextAttributes(&self) -> Option<WebGLContextAttributes> {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
 
         // If the send does not succeed, assume context lost
-        // TODO
-        self.send_command(WebGLCommand::GetContextAttributes(sender));
+        if self.webgl_sender.send(WebGLCommand::GetContextAttributes(sender)).is_err() {
+            return None;
+        }
 
         let attrs = receiver.recv().unwrap();
 
@@ -1705,7 +1710,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.3
     fn ColorMask(&self, r: bool, g: bool, b: bool, a: bool) {
-        self.send_command(WebGLCommand::ColorMask(r, g, b, a)))
+        self.send_command(WebGLCommand::ColorMask(r, g, b, a))
     }
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.3
@@ -2153,7 +2158,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
                                 shader_type: u32,
                                 precision_type: u32)
                                 -> Option<Root<WebGLShaderPrecisionFormat>> {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetShaderPrecisionFormat(shader_type,
                                                                  precision_type,
                                                                  sender));
@@ -2198,7 +2203,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             return jsval.get();
         }
 
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetVertexAttrib(index, pname, sender));
 
         match handle_potential_webgl_error!(self, receiver.recv().unwrap(), WebGLParameter::Invalid) {
@@ -2217,7 +2222,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.10
     fn GetVertexAttribOffset(&self, index: u32, pname: u32) -> i64 {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetVertexAttribOffset(index, pname, sender));
 
         handle_potential_webgl_error!(self, receiver.recv().unwrap(), 0) as i64
@@ -2249,7 +2254,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
     // https://www.khronos.org/registry/webgl/specs/latest/1.0/#5.14.3
     fn IsEnabled(&self, cap: u32) -> bool {
         if self.validate_feature_enum(cap) {
-            let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+            let (sender, receiver) = webgl_channel().unwrap();
             self.send_command(WebGLCommand::IsEnabled(cap, sender));
             return receiver.recv().unwrap();
         }
@@ -2444,7 +2449,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             _ => return Ok(self.webgl_error(InvalidOperation)),
         };
 
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::ReadPixels(x, y, width, height, format, pixel_type, sender));
 
         let result = receiver.recv().unwrap();
@@ -2701,7 +2706,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
         if self.validate_uniform_parameters(uniform,
                                             UniformSetterType::IntVec3,
                                             &[x, y, z]) {
-            self.send_command(WebGLCommand::Uniform3i(uniform.unwrap().id(), x, y, z)))
+            self.send_command(WebGLCommand::Uniform3i(uniform.unwrap().id(), x, y, z))
         }
     }
 
@@ -2717,7 +2722,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
         if self.validate_uniform_parameters(uniform,
                                             UniformSetterType::IntVec3,
                                             &data_vec) {
-            self.send_command(WebGLCommand::Uniform3iv(uniform.unwrap().id(), data_vec)))
+            self.send_command(WebGLCommand::Uniform3iv(uniform.unwrap().id(), data_vec))
         }
 
         Ok(())
@@ -2966,7 +2971,7 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
         self.bound_attrib_buffers.borrow_mut().insert(attrib_id, JS::from_ref(&*buffer_array));
 
-        let msg = WebGLCommand::VertexAttribPointer(attrib_id, size, data_type, normalized, stride, offset as u32));
+        let msg = WebGLCommand::VertexAttribPointer(attrib_id, size, data_type, normalized, stride, offset as u32);
         self.send_command(msg);
     }
 
@@ -3321,12 +3326,12 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
 pub trait LayoutCanvasWebGLRenderingContextHelpers {
     #[allow(unsafe_code)]
-    unsafe fn get_ipc_renderer(&self) -> IpcSender<CanvasMsg>;
+    unsafe fn get_ipc_renderer(&self) -> WebGLMsgSender;
 }
 
 impl LayoutCanvasWebGLRenderingContextHelpers for LayoutJS<WebGLRenderingContext> {
     #[allow(unsafe_code)]
-    unsafe fn get_ipc_renderer(&self) -> IpcSender<CanvasMsg> {
+    unsafe fn get_ipc_renderer(&self) -> WebGLMsgSender {
         (*self.unsafe_get()).ipc_renderer.clone()
     }
 }

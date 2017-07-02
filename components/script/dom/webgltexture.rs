@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // https://www.khronos.org/registry/webgl/specs/latest/1.0/webgl.idl
-use canvas_traits::canvas::CanvasMsg;
+
+use canvas_traits::webgl::{webgl_channel, WebGLCommand, WebGLError, WebGLMsgSender, WebGLResult, WebGLTextureId};
 use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as constants;
 use dom::bindings::codegen::Bindings::WebGLTextureBinding;
@@ -16,8 +17,6 @@ use dom_struct::dom_struct;
 use ipc_channel::ipc::IpcSender;
 use std::cell::Cell;
 use std::cmp;
-use webrender_traits;
-use webrender_traits::{WebGLCommand, WebGLError, WebGLResult, WebGLTextureId};
 
 pub enum TexParameterValue {
     Float(f32),
@@ -46,11 +45,11 @@ pub struct WebGLTexture {
     min_filter: Cell<Option<u32>>,
     mag_filter: Cell<Option<u32>>,
     #[ignore_heap_size_of = "Defined in ipc-channel"]
-    renderer: IpcSender<CanvasMsg>,
+    renderer: WebGLMsgSender,
 }
 
 impl WebGLTexture {
-    fn new_inherited(renderer: IpcSender<CanvasMsg>,
+    fn new_inherited(renderer: WebGLMsgSender,
                      id: WebGLTextureId)
                      -> WebGLTexture {
         WebGLTexture {
@@ -67,17 +66,17 @@ impl WebGLTexture {
         }
     }
 
-    pub fn maybe_new(window: &Window, renderer: IpcSender<CanvasMsg>)
+    pub fn maybe_new(window: &Window, renderer: WebGLMsgSender)
                      -> Option<Root<WebGLTexture>> {
-        let (sender, receiver) = webrender_traits::channel::msg_channel().unwrap();
-        renderer.send(CanvasMsg::WebGL(WebGLCommand::CreateTexture(sender))).unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
+        renderer.send(WebGLCommand::CreateTexture(sender)).unwrap();
 
         let result = receiver.recv().unwrap();
         result.map(|texture_id| WebGLTexture::new(window, renderer, texture_id))
     }
 
     pub fn new(window: &Window,
-               renderer: IpcSender<CanvasMsg>,
+               renderer: WebGLMsgSender,
                id: WebGLTextureId)
                -> Root<WebGLTexture> {
         reflect_dom_object(box WebGLTexture::new_inherited(renderer, id),
@@ -113,7 +112,7 @@ impl WebGLTexture {
             self.target.set(Some(target));
         }
 
-        let msg = CanvasMsg::WebGL(WebGLCommand::BindTexture(target, Some(self.id)));
+        let msg = WebGLCommand::BindTexture(target, Some(self.id));
         self.renderer.send(msg).unwrap();
 
         Ok(())
@@ -168,7 +167,7 @@ impl WebGLTexture {
             return Err(WebGLError::InvalidOperation);
         }
 
-        self.renderer.send(CanvasMsg::WebGL(WebGLCommand::GenerateMipmap(target))).unwrap();
+        self.renderer.send(WebGLCommand::GenerateMipmap(target)).unwrap();
 
         if self.base_mipmap_level + base_image_info.get_max_mimap_levels() == 0 {
             return Err(WebGLError::InvalidOperation);
@@ -181,7 +180,7 @@ impl WebGLTexture {
     pub fn delete(&self) {
         if !self.is_deleted.get() {
             self.is_deleted.set(true);
-            let _ = self.renderer.send(CanvasMsg::WebGL(WebGLCommand::DeleteTexture(self.id)));
+            let _ = self.renderer.send(WebGLCommand::DeleteTexture(self.id));
         }
     }
 
@@ -216,7 +215,7 @@ impl WebGLTexture {
                     constants::LINEAR_MIPMAP_LINEAR => {
                         self.min_filter.set(Some(int_value as u32));
                         self.renderer
-                            .send(CanvasMsg::WebGL(WebGLCommand::TexParameteri(target, name, int_value)))
+                            .send(WebGLCommand::TexParameteri(target, name, int_value))
                             .unwrap();
                         Ok(())
                     },
@@ -230,7 +229,7 @@ impl WebGLTexture {
                     constants::LINEAR => {
                         self.mag_filter.set(Some(int_value as u32));
                         self.renderer
-                            .send(CanvasMsg::WebGL(WebGLCommand::TexParameteri(target, name, int_value)))
+                            .send(WebGLCommand::TexParameteri(target, name, int_value))
                             .unwrap();
                         Ok(())
                     },
@@ -245,7 +244,7 @@ impl WebGLTexture {
                     constants::MIRRORED_REPEAT |
                     constants::REPEAT => {
                         self.renderer
-                            .send(CanvasMsg::WebGL(WebGLCommand::TexParameteri(target, name, int_value)))
+                            .send(WebGLCommand::TexParameteri(target, name, int_value))
                             .unwrap();
                         Ok(())
                     },

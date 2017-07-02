@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use canvas_traits::canvas::CanvasMsg;
+use canvas_traits::webgl::{WebGLCommand, WebVRCommand};
 use core::ops::Deref;
 use dom::bindings::callback::ExceptionHandling;
 use dom::bindings::cell::DOMRefCell;
@@ -42,7 +42,6 @@ use std::mem;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread;
-use webrender_traits::VRCompositorCommand;
 use webvr_traits::{WebVRDisplayData, WebVRDisplayEvent, WebVRFrameData, WebVRLayer, WebVRMsg};
 
 #[dom_struct]
@@ -385,11 +384,10 @@ impl VRDisplayMethods for VRDisplay {
             return;
         }
 
-        let api_sender = self.layer_ctx.get().unwrap().ipc_renderer();
-        let display_id = self.display.borrow().display_id as u64;
+        let display_id = self.display.borrow().display_id;
         let layer = self.layer.borrow();
-        let msg = VRCompositorCommand::SubmitFrame(display_id, layer.left_bounds, layer.right_bounds);
-        api_sender.send(CanvasMsg::WebVR(msg)).unwrap();
+        let msg = WebVRCommand::SubmitFrame(display_id, layer.left_bounds, layer.right_bounds);
+        self.layer_ctx.get().unwrap().send_vr_command(msg);
     }
 }
 
@@ -475,8 +473,8 @@ impl VRDisplay {
         let (sync_sender, sync_receiver) = ipc::channel().unwrap();
         *self.frame_data_receiver.borrow_mut() = Some(sync_receiver);
 
-        let display_id = self.display.borrow().display_id as u64;
-        let api_sender = self.layer_ctx.get().unwrap().ipc_renderer();
+        let display_id = self.display.borrow().display_id;
+        let api_sender = self.layer_ctx.get().unwrap().webgl_sender();
         let js_sender = self.global().script_chan();
         let address = Trusted::new(&*self);
         let near_init = self.depth_near.get();
@@ -494,7 +492,7 @@ impl VRDisplay {
             let mut far = far_init;
 
             // Initialize compositor
-            api_sender.send(CanvasMsg::WebVR(VRCompositorCommand::Create(display_id))).unwrap();
+            api_sender.send_vr(WebVRCommand::Create(display_id)).unwrap();
             loop {
                 // Run RAF callbacks on JavaScript thread
                 let msg = box NotifyDisplayRAF {
@@ -504,8 +502,8 @@ impl VRDisplay {
                 js_sender.send(CommonScriptMsg::RunnableMsg(WebVREvent, msg)).unwrap();
 
                 // Run Sync Poses in parallell on Render thread
-                let msg = VRCompositorCommand::SyncPoses(display_id, near, far, sync_sender.clone());
-                api_sender.send(CanvasMsg::WebVR(msg)).unwrap();
+                let msg = WebVRCommand::SyncPoses(display_id, near, far, sync_sender.clone());
+                api_sender.send_vr(msg).unwrap();
 
                 // Wait until both SyncPoses & RAF ends
                 if let Ok(depth) = raf_receiver.recv().unwrap() {
@@ -524,10 +522,9 @@ impl VRDisplay {
         self.presenting.set(false);
         *self.frame_data_receiver.borrow_mut() = None;
 
-        let api_sender = self.layer_ctx.get().unwrap().ipc_renderer();
-        let display_id = self.display.borrow().display_id as u64;
-        let msg = VRCompositorCommand::Release(display_id);
-        api_sender.send(CanvasMsg::WebVR(msg)).unwrap();
+        let api_sender = self.layer_ctx.get().unwrap().webgl_sender();
+        let display_id = self.display.borrow().display_id;
+        api_sender.send_vr(WebVRCommand::Release(display_id)).unwrap();
     }
 
     // Only called when the JSContext is destroyed while presenting.

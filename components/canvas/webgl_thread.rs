@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
 
-struct WebGLThread {
+pub struct WebGLThread {
     factory: GLContextFactory,
     contexts: HashMap<WebGLContextId, GLContextWrapper>,
     cached_context_info: HashMap<WebGLContextId, (u32, Size2D<i32>)>,
@@ -54,6 +54,9 @@ impl WebGLThread {
                     },
                     WebGLMsg::ResizeContext(ctx_id, size) => {
                         renderer.resize(ctx_id, size);
+                    },
+                    WebGLMsg::RemoveContext(ctx_id) => {
+                        renderer.remove_context(ctx_id);
                     },
                     WebGLMsg::WebGLCommand(ctx_id, command) => {
                         renderer.handle_webgl_command(ctx_id, command);
@@ -143,7 +146,6 @@ impl WebGLThread {
        chan.send(CanvasData::WebGL(info.0)).unwrap()
     }
 
-    #[allow(unsafe_code)]
     fn resize(&mut self, context_id: WebGLContextId, size: Size2D<i32>) {
         let ctx = self.contexts.get_mut(&context_id).unwrap();
         if Some(context_id) != self.current_bound_webgl_context_id {
@@ -160,6 +162,12 @@ impl WebGLThread {
                 error!("Error resizing WebGLContext: {}", msg);
             }
         }
+    }
+
+    fn remove_context(&mut self, context_id: WebGLContextId) {
+        self.contexts.remove(&context_id);
+        // Removing a GLContext may make the current bound context_id dirty.
+        self.current_bound_webgl_context_id = None;
     }
 }
 

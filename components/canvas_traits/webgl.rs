@@ -5,7 +5,7 @@
 #[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
 use euclid::Size2D;
-use ipc_channel::ipc;
+use ipc_channel::{ipc, self};
 use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ use super::{FromLayoutMsg, FromScriptMsg};
 
 pub type WebGLSender<T> = IpcSender<T>;
 pub type WebGLReceiver<T> = IpcReceiver<T>;
+pub type WebGLChannelError = ipc_channel::Error;
 
 pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), io::Error> {
     ipc::channel()
@@ -24,16 +25,17 @@ pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebG
 pub enum WebGLMsg {
     CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLMsgSender, GLLimits), String>>),
     ResizeContext(WebGLContextId, Size2D<i32>),
+    RemoveContext(WebGLContextId),
     WebGLCommand(WebGLContextId, WebGLCommand),
     WebVRCommand(WebGLContextId, WebVRCommand),
     FromScript(FromScriptMsg),
     FromLayout(FromLayoutMsg),
 }
 
-
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, HeapSizeOf, Serialize)]
 pub struct WebGLMsgSender {
     ctx_id: WebGLContextId,
+    #[ignore_heap_size_of = "channels are hard"]
     sender: WebGLSender<WebGLMsg>,
 }
 
@@ -46,18 +48,23 @@ impl WebGLMsgSender {
     }
 
     #[inline]
-    pub fn send(&self, command: WebGLCommand) {
-        self.sender.send(WebGLMsg::WebGLCommand(self.ctx_id, command)).unwrap();
+    pub fn send(&self, command: WebGLCommand) -> Result<(),WebGLChannelError> {
+        self.sender.send(WebGLMsg::WebGLCommand(self.ctx_id, command))
     }
 
     #[inline]
-    pub fn send_vr(&self, command: WebVRCommand) {
-        self.sender.send(WebGLMsg::WebVRCommand(self.ctx_id, command)).unwrap();
+    pub fn send_vr(&self, command: WebVRCommand) -> Result<(),WebGLChannelError> {
+        self.sender.send(WebGLMsg::WebVRCommand(self.ctx_id, command))
     }
 
     #[inline]
-    pub fn resize(&self, size: Size2D<i32>) {
-        self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size)).unwrap();
+    pub fn send_resize(&self, size: Size2D<i32>) -> Result<(),WebGLChannelError> {
+        self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size))
+    }
+
+    #[inline]
+    pub fn send_remove(&self) -> Result<(),WebGLChannelError> {
+        self.sender.send(WebGLMsg::RemoveContext(self.ctx_id))
     }
 }
 
