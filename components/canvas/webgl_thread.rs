@@ -3,7 +3,6 @@
  his
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use canvas_traits::{CanvasData, FromLayoutMsg, FromScriptMsg};
 use canvas_traits::webgl::*;
 use euclid::Size2D;
 use gleam::gl;
@@ -48,8 +47,8 @@ impl WebGLThread {
                 match receiver.recv().unwrap() {
                     WebGLMsg::CreateContext(size, attributes, result_sender) => {
                         let result = renderer.create_webgl_context(size, attributes);
-                        result_sender.send(result.map(|(id, limits)| 
-                            (WebGLMsgSender::new(id, sender.clone()), limits)
+                        result_sender.send(result.map(|(id, limits, texture_id)| 
+                            (WebGLMsgSender::new(id, sender.clone()), limits, texture_id)
                         )).unwrap();
                     },
                     WebGLMsg::ResizeContext(ctx_id, size) => {
@@ -64,22 +63,6 @@ impl WebGLThread {
                     WebGLMsg::WebVRCommand(ctx_id, command) => {
                         renderer.handle_webvr_command(ctx_id, command);
                     },
-
-                    WebGLMsg::FromScript(message) => {
-                        match message {
-                            FromScriptMsg::SendPixels(chan) =>{
-                                // Read the comment on
-                                // HTMLCanvasElement::fetch_all_data.
-                                chan.send(None).unwrap();
-                            }
-                        }
-                    },
-                    WebGLMsg::FromLayout(message) => {
-                        match message {
-                            FromLayoutMsg::SendData(id, chan) =>
-                                renderer.send_data(id, chan),
-                        }
-                    }
                 }
             }
         }).expect("Thread spawning failed");
@@ -114,7 +97,7 @@ impl WebGLThread {
     fn create_webgl_context(&mut self,
                             size: Size2D<i32>,
                             attributes: GLContextAttributes)
-                            -> Result<(WebGLContextId, GLLimits), String> {
+                            -> Result<(WebGLContextId, GLLimits, u32), String> {
         // TODO
         let dispatcher = None;
 
@@ -131,19 +114,12 @@ impl WebGLThread {
                 self.contexts.insert(id, ctx);
                 self.cached_context_info.insert(id, (texture_id, real_size));
 
-                Ok((id, limits))
+                Ok((id, limits, texture_id))
             },
             Err(msg) => {
                 Err(msg.to_owned())
             }
         }
-    }
-
-    fn send_data(&mut self, id: Option<WebGLContextId>, chan: IpcSender<CanvasData>) {
-        //TODDO readback mode
-       let info = self.cached_context_info[&id.unwrap()];
-       // Send WebGL texture info
-       chan.send(CanvasData::WebGL(info.0)).unwrap()
     }
 
     fn resize(&mut self, context_id: WebGLContextId, size: Size2D<i32>) {

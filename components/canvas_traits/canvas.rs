@@ -3,7 +3,6 @@ use euclid::{Transform2D, Point2D, Vector2D, Rect, Size2D};
 use ipc_channel::ipc::IpcSender;
 use std::default::Default;
 use std::str::FromStr;
-use super::{FromLayoutMsg, FromScriptMsg};
 use webrender_traits;
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -65,6 +64,16 @@ pub enum Canvas2dMsg {
     SetShadowOffsetY(f64),
     SetShadowBlur(f64),
     SetShadowColor(RGBA),
+}
+
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum FromLayoutMsg { 
+    SendData(IpcSender<CanvasImageData>), 
+}
+
+#[derive(Clone, Deserialize, Serialize)] 
+pub enum FromScriptMsg { 
+    SendPixels(IpcSender<Option<Vec<u8>>>), 
 }
 
 #[derive(Clone, Deserialize, Serialize, HeapSizeOf)]

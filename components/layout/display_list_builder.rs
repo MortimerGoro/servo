@@ -12,14 +12,13 @@
 
 use app_units::{AU_PER_PX, Au};
 use block::{BlockFlow, BlockStackingContextType};
-use canvas_traits::{CanvasData, FromLayoutMsg};
-use canvas_traits::canvas::CanvasMsg;
+use canvas_traits::canvas::{CanvasMsg, FromLayoutMsg};
 use context::LayoutContext;
 use euclid::{Transform3D, Point2D, Vector2D, Rect, SideOffsets2D, Size2D, TypedSize2D};
 use flex::FlexFlow;
 use flow::{BaseFlow, Flow, IS_ABSOLUTELY_POSITIONED};
 use flow_ref::FlowRef;
-use fragment::{CoordinateSystem, Fragment, ImageFragmentInfo, ScannedTextFragmentInfo};
+use fragment::{CanvasFragmentSource, CoordinateSystem, Fragment, ImageFragmentInfo, ScannedTextFragmentInfo};
 use fragment::{SpecificFragmentInfo, TruncatedFragmentInfo};
 use gfx::display_list;
 use gfx::display_list::{BLUR_INFLATION_FACTOR, BaseDisplayItem, BorderDetails};
@@ -1932,15 +1931,22 @@ impl FragmentDisplayListBuilding for Fragment {
                 let computed_width = canvas_fragment_info.dom_width.to_px();
                 let computed_height = canvas_fragment_info.dom_height.to_px();
 
-                let canvas_data = match canvas_fragment_info.ipc_renderer {
-                    Some(ref ipc_renderer) => {
-                        let ipc_renderer = ipc_renderer.lock().unwrap();
-                        let (sender, receiver) = ipc::channel().unwrap();
-                        ipc_renderer.send(CanvasMsg::FromLayout(
-                            FromLayoutMsg::SendData(sender))).unwrap();
-                        receiver.recv().unwrap()
+                let canvas_data = match canvas_fragment_info.source {
+                    CanvasFragmentSource::WebGL(texture_id) => {
+                        CanvasData::WebGL(texture_id)
                     },
-                    None => return,
+                    CanvasFragmentSource::Image(ref ipc_renderer) => {
+                        match *ipc_renderer {
+                            Some(ref ipc_renderer) => {
+                                let ipc_renderer = ipc_renderer.lock().unwrap();
+                                let (sender, receiver) = ipc::channel().unwrap();
+                                ipc_renderer.send(CanvasMsg::FromLayout(
+                                    FromLayoutMsg::SendData(sender))).unwrap();
+                                receiver.recv().unwrap()
+                            },
+                            None => return,
+                        }
+                    }
                 };
 
                 let base = state.create_base_display_item(

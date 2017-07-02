@@ -53,6 +53,7 @@ use js::typedarray::{TypedArray, TypedArrayElement, Float32, Int32};
 use net_traits::image::base::PixelFormat;
 use net_traits::image_cache::ImageResponse;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use script_layout_interface::HTMLCanvasDataSource;
 use script_traits::ScriptMsg as ConstellationMsg;
 use servo_config::prefs::PREFS;
 use std::cell::Cell;
@@ -137,6 +138,7 @@ pub struct WebGLRenderingContext {
     webgl_sender: WebGLMsgSender,
     #[ignore_heap_size_of = "Defined in offscreen_gl_context"]
     limits: GLLimits,
+    context_texture: u32,
     canvas: JS<HTMLCanvasElement>,
     #[ignore_heap_size_of = "Defined in canvas_traits"]
     last_error: Cell<Option<WebGLError>>,
@@ -156,7 +158,7 @@ pub struct WebGLRenderingContext {
     current_scissor: Cell<(i32, i32, i32, i32)>,
     #[ignore_heap_size_of = "Because it's small"]
     current_clear_color: Cell<(f32, f32, f32, f32)>,
-    extension_manager: WebGLExtensions
+    extension_manager: WebGLExtensions,
 }
 
 impl WebGLRenderingContext {
@@ -175,11 +177,12 @@ impl WebGLRenderingContext {
                           .unwrap();
         let result = receiver.recv().unwrap();
 
-        result.map(|(webgl_sender, context_limits)| {
+        result.map(|(webgl_sender, context_limits, context_texture)| {
             WebGLRenderingContext {
                 reflector_: Reflector::new(),
                 webgl_sender: webgl_sender,
                 limits: context_limits,
+                context_texture: context_texture,
                 canvas: JS::from_ref(canvas),
                 last_error: Cell::new(None),
                 texture_unpacking_settings: Cell::new(CONVERT_COLORSPACE),
@@ -452,6 +455,26 @@ impl WebGLRenderingContext {
         }
 
         true
+    }
+
+    pub fn get_context_pixels(&self) -> Option<Vec<u8>> {
+        let (width, height) =  match self.get_current_framebuffer_size() {
+            Some((w, h)) => (w, h),
+            _ => return None
+        };
+        let (sender, receiver) = webgl_channel().unwrap();
+        self.send_command(WebGLCommand::ReadPixels(0, 0, width, height,
+                                                   constants::RGBA,
+                                                   constants::UNSIGNED_BYTE,
+                                                   sender));
+
+        let pixels = receiver.recv().unwrap();
+        Some(self.flip_teximage_y(pixels,
+                                  TexFormat::RGBA,
+                                  TexDataType::UnsignedByte,
+                                  width as usize,
+                                  height as usize,
+                                  1))
     }
 
     // https://en.wikipedia.org/wiki/Relative_luminance
@@ -3326,13 +3349,23 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
 
 pub trait LayoutCanvasWebGLRenderingContextHelpers {
     #[allow(unsafe_code)]
-    unsafe fn get_ipc_renderer(&self) -> WebGLMsgSender;
+    unsafe fn canvas_data_source(&self) -> HTMLCanvasDataSource;
 }
 
 impl LayoutCanvasWebGLRenderingContextHelpers for LayoutJS<WebGLRenderingContext> {
     #[allow(unsafe_code)]
-    unsafe fn get_ipc_renderer(&self) -> WebGLMsgSender {
-        (*self.unsafe_get()).ipc_renderer.clone()
+    unsafe fn canvas_data_source(&self) -> HTMLCanvasDataSource {
+        HTMLCanvasDataSource::WebGL((*self.unsafe_get()).context_texture)
+        /*match (*self.unsafe_get()).webgl_context_source {
+            WebGLContextSource::WebRender(ref ctx_id) => {
+                HTMLCanvasDataSource::WebGL(ctx_id.clone())
+            },
+            WebGLContextSource::Readback(ref sender) => {
+                // TODO
+                unimplemented!();
+                //HTMLCanvasDataSource::Image(Some(sender.clone()))
+            }
+        }*/
     }
 }
 

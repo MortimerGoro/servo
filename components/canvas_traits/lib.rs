@@ -18,23 +18,3 @@ extern crate webrender_traits;
 
 pub mod canvas;
 pub mod webgl;
-
-use ipc_channel::ipc::IpcSender;
-use self::webgl::WebGLContextId;
-
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum CanvasData {
-    Image(self::canvas::CanvasImageData),
-    WebGL(u32),
-}
-
-#[derive(Clone, Deserialize, Serialize)] 
-pub enum FromLayoutMsg { 
-    SendData(Option<WebGLContextId>, IpcSender<CanvasData>), 
-} 
- 
-#[derive(Clone, Deserialize, Serialize)] 
-pub enum FromScriptMsg { 
-    SendPixels(IpcSender<Option<Vec<u8>>>), 
-}

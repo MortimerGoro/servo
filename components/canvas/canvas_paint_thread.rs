@@ -8,7 +8,6 @@ use azure::azure_hl::{BackendType, DrawOptions, DrawTarget, Pattern, StrokeOptio
 use azure::azure_hl::{Color, ColorPattern, DrawSurfaceOptions, Filter, PathBuilder};
 use azure::azure_hl::{ExtendMode, GradientStop, LinearGradientPattern, RadialGradientPattern};
 use azure::azure_hl::SurfacePattern;
-use canvas_traits::{CanvasData, FromLayoutMsg, FromScriptMsg};
 use canvas_traits::canvas::*;
 use cssparser::RGBA;
 use euclid::{Transform2D, Point2D, Vector2D, Rect, Size2D};
@@ -200,7 +199,7 @@ impl<'a> CanvasPaintThread<'a> {
                     }
                     CanvasMsg::FromLayout(message) => {
                         match message {
-                            FromLayoutMsg::SendData(_id, chan) => {
+                            FromLayoutMsg::SendData(chan) => {
                                 painter.send_data(chan)
                             }
                         }
@@ -551,7 +550,7 @@ impl<'a> CanvasPaintThread<'a> {
         })
     }
 
-    fn send_data(&mut self, chan: IpcSender<CanvasData>) {
+    fn send_data(&mut self, chan: IpcSender<CanvasImageData>) {
         self.drawtarget.snapshot().get_data_surface().with_data(|element| {
             let size = self.drawtarget.get_size();
 
@@ -584,7 +583,7 @@ impl<'a> CanvasPaintThread<'a> {
             let data = CanvasImageData {
                 image_key: self.image_key.unwrap(),
             };
-            chan.send(CanvasData::Image(data)).unwrap();
+            chan.send(data).unwrap();
         })
     }
 

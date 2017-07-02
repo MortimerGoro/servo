@@ -2085,7 +2085,7 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             &mut self,
             size: &Size2D<i32>,
             attributes: GLContextAttributes,
-            response_sender: IpcSender<Result<(WebGLMsgSender, GLLimits), String>>) {
+            response_sender: IpcSender<Result<(WebGLMsgSender, GLLimits, u32), String>>) {
         
         // TODO
         // self.webvr_thread = WebGLThread::start(*size, attributes, webrender_api);

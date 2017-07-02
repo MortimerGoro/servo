@@ -11,7 +11,6 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
-use super::{FromLayoutMsg, FromScriptMsg};
 
 pub type WebGLSender<T> = IpcSender<T>;
 pub type WebGLReceiver<T> = IpcReceiver<T>;
@@ -23,13 +22,11 @@ pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebG
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLMsg {
-    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLMsgSender, GLLimits), String>>),
+    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLMsgSender, GLLimits, u32), String>>),
     ResizeContext(WebGLContextId, Size2D<i32>),
     RemoveContext(WebGLContextId),
     WebGLCommand(WebGLContextId, WebGLCommand),
     WebVRCommand(WebGLContextId, WebVRCommand),
-    FromScript(FromScriptMsg),
-    FromLayout(FromLayoutMsg),
 }
 
 #[derive(Clone, Deserialize, HeapSizeOf, Serialize)]

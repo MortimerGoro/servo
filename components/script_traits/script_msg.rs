@@ -83,7 +83,7 @@ pub enum ScriptMsg {
     /// WebGL uses the GPU and we don't want to give untrusted content access to the GPU.)
     CreateWebGLContext(Size2D<i32>,
                        GLContextAttributes,
-                       IpcSender<Result<(WebGLMsgSender, GLLimits), String>>),
+                       IpcSender<Result<(WebGLMsgSender, GLLimits, u32), String>>),
     /// Notifies the constellation that this frame has received focus.
     Focus(PipelineId),
     /// Forward an event that was sent to the parent window.
