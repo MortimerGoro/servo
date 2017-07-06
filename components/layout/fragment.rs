@@ -54,6 +54,7 @@ use style::values::computed::{LengthOrPercentage, LengthOrPercentageOrAuto};
 use text;
 use text::TextRunScanner;
 use wrapper::ThreadSafeLayoutNodeHelpers;
+use webrender_traits;
 
 // From gfxFontConstants.h in Firefox.
 static FONT_SUBSCRIPT_OFFSET_RATIO: f32 = 0.20;
@@ -323,7 +324,7 @@ impl InlineAbsoluteFragmentInfo {
 
 #[derive(Clone)]
 pub enum CanvasFragmentSource {
-    WebGL(u32),
+    WebGL(webrender_traits::ImageKey),
     Image(Option<Arc<Mutex<IpcSender<CanvasMsg>>>>)
 }
 

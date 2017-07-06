@@ -18,5 +18,5 @@ extern crate servo_config;
 extern crate webrender_traits;
 
 pub mod canvas_paint_thread;
-mod gl_context;
+pub mod gl_context;
 pub mod webgl_thread;

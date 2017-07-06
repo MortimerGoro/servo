@@ -70,9 +70,10 @@ use bluetooth_traits::BluetoothRequest;
 use browsingcontext::{BrowsingContext, SessionHistoryChange, SessionHistoryEntry};
 use browsingcontext::{FullyActiveBrowsingContextsIterator, AllBrowsingContextsIterator};
 use canvas::canvas_paint_thread::CanvasPaintThread;
+use canvas::gl_context::GLContextFactory;
 use canvas::webgl_thread::WebGLThread;
 use canvas_traits::canvas::CanvasMsg;
-use canvas_traits::webgl::{WebGLMsg, WebGLMsgSender, WebGLSender};
+use canvas_traits::webgl::{WebGLContextData, WebGLMsg, WebGLMsgSender, WebGLSender};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use compositing::SendableFrameTree;
 use compositing::compositor_thread::CompositorProxy;
@@ -2085,14 +2086,15 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             &mut self,
             size: &Size2D<i32>,
             attributes: GLContextAttributes,
-            response_sender: IpcSender<Result<(WebGLMsgSender, GLLimits, u32), String>>) {
+            response_sender: IpcSender<Result<WebGLContextData, String>>) {
+        // Lazy initialization
+        let webrender_api = self.webrender_api_sender.clone();
+        let webgl_thread = self.webgl_thread.get_or_insert_with(|| {
+            let factory = GLContextFactory::current_native_handle().unwrap();
+            WebGLThread::start(factory, webrender_api, None)
+        });
         
-        // TODO
-        // self.webvr_thread = WebGLThread::start(*size, attributes, webrender_api);
-
-        // if let Err(e) = response_sender.send(response) {
-        //    warn!("Create WebGL paint thread response failed ({})", e);
-        // }
+        webgl_thread.send(WebGLMsg::CreateContext(*size, attributes, response_sender));
     }
 
     fn handle_webdriver_msg(&mut self, msg: WebDriverCommandMsg) {

@@ -106,6 +106,7 @@ use style::stylesheets::keyframes_rule::Keyframe;
 use style::values::specified::Length;
 use time::Duration;
 use uuid::Uuid;
+use webrender_traits::ImageKey;
 use webvr_traits::WebVRGamepadHand;
 
 /// A trait to allow tracing (only) DOM objects.
@@ -381,6 +382,7 @@ unsafe_no_jsmanaged_fields!(RelativePos);
 unsafe_no_jsmanaged_fields!(OpaqueStyleAndLayoutData);
 unsafe_no_jsmanaged_fields!(PathBuf);
 unsafe_no_jsmanaged_fields!(CSSErrorReporter);
+unsafe_no_jsmanaged_fields!(ImageKey);
 unsafe_no_jsmanaged_fields!(WebGLBufferId);
 unsafe_no_jsmanaged_fields!(WebGLFramebufferId);
 unsafe_no_jsmanaged_fields!(WebGLMsgSender);

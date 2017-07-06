@@ -11,6 +11,7 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
+use webrender_traits;
 
 pub type WebGLSender<T> = IpcSender<T>;
 pub type WebGLReceiver<T> = IpcReceiver<T>;
@@ -20,10 +21,17 @@ pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebG
     ipc::channel()
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct WebGLContextData {
+    pub sender: WebGLMsgSender,
+    pub limits: GLLimits,
+    pub image_key: webrender_traits::ImageKey,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLMsg {
-    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLMsgSender, GLLimits, u32), String>>),
-    ResizeContext(WebGLContextId, Size2D<i32>),
+    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLContextData), String>>),
+    ResizeContext(WebGLContextId, Size2D<i32>, WebGLSender<Result<webrender_traits::ImageKey, String>>),
     RemoveContext(WebGLContextId),
     WebGLCommand(WebGLContextId, WebGLCommand),
     WebVRCommand(WebGLContextId, WebVRCommand),
@@ -55,8 +63,11 @@ impl WebGLMsgSender {
     }
 
     #[inline]
-    pub fn send_resize(&self, size: Size2D<i32>) -> Result<(),WebGLChannelError> {
-        self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size))
+    pub fn send_resize(&self,
+                       size: Size2D<i32>,
+                       sender: WebGLSender<Result<webrender_traits::ImageKey, String>>)
+                       -> Result<(),WebGLChannelError> {
+        self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size, sender))
     }
 
     #[inline]

@@ -11,11 +11,13 @@ use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLCon
 use std::collections::HashMap;
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
+use webrender_traits;
 
 pub struct WebGLThread {
     factory: GLContextFactory,
+    webrender_api: webrender_traits::RenderApi,
     contexts: HashMap<WebGLContextId, GLContextWrapper>,
-    cached_context_info: HashMap<WebGLContextId, (u32, Size2D<i32>)>,
+    cached_context_info: HashMap<WebGLContextId, (u32, Size2D<i32>, webrender_traits::ImageKey)>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     next_webgl_id: usize,
     webvr_compositor: Option<Box<WebVRRenderHandler>>,
@@ -23,9 +25,11 @@ pub struct WebGLThread {
 
 impl WebGLThread {
     fn new(factory: GLContextFactory,
+           webrender_api_sender: webrender_traits::RenderApiSender,
            webvr_compositor: Option<Box<WebVRRenderHandler>>) -> Self {
         WebGLThread {
             factory: factory,
+            webrender_api: webrender_api_sender.create_api(),
             contexts: HashMap::new(),
             cached_context_info: HashMap::new(),
             current_bound_webgl_context_id: None,
@@ -37,22 +41,27 @@ impl WebGLThread {
     /// Creates a new `WebGLThread` and returns a Sender to
     /// communicate with it.
     pub fn start(webgl_factory: GLContextFactory,
+                 webrender_api_sender: webrender_traits::RenderApiSender,
                  webvr_compositor: Option<Box<WebVRRenderHandler>>)
                  -> WebGLSender<WebGLMsg> {
         let (sender, receiver) = webgl_channel::<WebGLMsg>().unwrap();
         let result = sender.clone();
         thread::Builder::new().name("WebGLThread".to_owned()).spawn(move || {
-            let mut renderer = WebGLThread::new(webgl_factory, webvr_compositor);
+            let mut renderer = WebGLThread::new(webgl_factory, webrender_api_sender, webvr_compositor);
             loop {
                 match receiver.recv().unwrap() {
                     WebGLMsg::CreateContext(size, attributes, result_sender) => {
                         let result = renderer.create_webgl_context(size, attributes);
-                        result_sender.send(result.map(|(id, limits, texture_id)| 
-                            (WebGLMsgSender::new(id, sender.clone()), limits, texture_id)
+                        result_sender.send(result.map(|(id, limits, image_key)|
+                            WebGLContextData {
+                                sender: WebGLMsgSender::new(id, sender.clone()),
+                                limits: limits,
+                                image_key: image_key,
+                            }
                         )).unwrap();
                     },
-                    WebGLMsg::ResizeContext(ctx_id, size) => {
-                        renderer.resize(ctx_id, size);
+                    WebGLMsg::ResizeContext(ctx_id, size, sender) => {
+                        renderer.resize(ctx_id, size, sender);
                     },
                     WebGLMsg::RemoveContext(ctx_id) => {
                         renderer.remove_context(ctx_id);
@@ -91,13 +100,13 @@ impl WebGLThread {
             },
             _ => None
         };
-        self.webvr_compositor.as_mut().unwrap().handle(command, texture.map(|d| *d));
+        self.webvr_compositor.as_mut().unwrap().handle(command, texture.map(|d| (d.0, d.1)));
     }
 
     fn create_webgl_context(&mut self,
                             size: Size2D<i32>,
                             attributes: GLContextAttributes)
-                            -> Result<(WebGLContextId, GLLimits, u32), String> {
+                            -> Result<(WebGLContextId, GLLimits, webrender_traits::ImageKey), String> {
         // TODO
         let dispatcher = None;
 
@@ -109,12 +118,13 @@ impl WebGLThread {
         match result {
             Ok(ctx) => {
                 let id = WebGLContextId(self.next_webgl_id);
-                self.next_webgl_id += 1;
                 let (real_size, texture_id, limits) = ctx.get_info();
+                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, texture_id);
+                self.next_webgl_id += 1;
                 self.contexts.insert(id, ctx);
-                self.cached_context_info.insert(id, (texture_id, real_size));
+                self.cached_context_info.insert(id, (texture_id, real_size, image_key));
 
-                Ok((id, limits, texture_id))
+                Ok((id, limits, image_key))
             },
             Err(msg) => {
                 Err(msg.to_owned())
@@ -122,7 +132,10 @@ impl WebGLThread {
         }
     }
 
-    fn resize(&mut self, context_id: WebGLContextId, size: Size2D<i32>) {
+    fn resize(&mut self,
+              context_id: WebGLContextId,
+              size: Size2D<i32>,
+              sender: WebGLSender<Result<webrender_traits::ImageKey, String>>) {
         let ctx = self.contexts.get_mut(&context_id).unwrap();
         if Some(context_id) != self.current_bound_webgl_context_id {
             ctx.make_current();
@@ -132,10 +145,13 @@ impl WebGLThread {
             Ok(_) => {
                 // Update webgl texture size. Texture id may change too.
                 let (real_size, texture_id, _) = ctx.get_info();
-                self.cached_context_info.insert(context_id, (texture_id, real_size));
+                // TODO remove old image keys
+                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, texture_id);
+                self.cached_context_info.insert(context_id, (texture_id, real_size, image_key));
+                sender.send(Ok(image_key)).unwrap();
             },
             Err(msg) => {
-                error!("Error resizing WebGLContext: {}", msg);
+                sender.send(Err(msg.into())).unwrap();
             }
         }
     }
@@ -144,6 +160,33 @@ impl WebGLThread {
         self.contexts.remove(&context_id);
         // Removing a GLContext may make the current bound context_id dirty.
         self.current_bound_webgl_context_id = None;
+    }
+
+    fn create_webrender_image(webrender_api: &webrender_traits::RenderApi,
+                              size: Size2D<i32>,
+                              texture_id: u32) -> webrender_traits::ImageKey {
+        let descriptor = webrender_traits::ImageDescriptor {
+            width: size.width as u32,
+            height: size.height as u32,
+            stride: None,
+            format: webrender_traits::ImageFormat::BGRA8,
+            offset: 0,
+            is_opaque: true,
+        };
+
+        let data = webrender_traits::ExternalImageData {
+            id: webrender_traits::ExternalImageId(texture_id as u64),
+            channel_index: 0,
+            image_type: webrender_traits::ExternalImageType::Texture2DHandle,
+        };
+        let data = webrender_traits::ImageData::External(data);
+
+        let image_key = webrender_api.generate_image_key();
+        webrender_api.add_image(image_key,
+                                descriptor,
+                                data,
+                                None);
+        image_key
     }
 }
 

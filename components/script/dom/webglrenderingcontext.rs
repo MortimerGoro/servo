@@ -58,6 +58,7 @@ use script_traits::ScriptMsg as ConstellationMsg;
 use servo_config::prefs::PREFS;
 use std::cell::Cell;
 use std::collections::HashMap;
+use webrender_traits;
 
 type ImagePixelResult = Result<(Vec<u8>, Size2D<i32>, bool), ()>;
 pub const MAX_UNIFORM_AND_ATTRIBUTE_LEN: usize = 256;
@@ -134,11 +135,12 @@ bitflags! {
 #[dom_struct]
 pub struct WebGLRenderingContext {
     reflector_: Reflector,
-    #[ignore_heap_size_of = "Defined in ipc-channel"]
+    #[ignore_heap_size_of = "Channels are hard"]
     webgl_sender: WebGLMsgSender,
+    #[ignore_heap_size_of = "Defined in webrender"]
+    webrender_image: Cell<webrender_traits::ImageKey>,
     #[ignore_heap_size_of = "Defined in offscreen_gl_context"]
     limits: GLLimits,
-    context_texture: u32,
     canvas: JS<HTMLCanvasElement>,
     #[ignore_heap_size_of = "Defined in canvas_traits"]
     last_error: Cell<Option<WebGLError>>,
@@ -177,12 +179,12 @@ impl WebGLRenderingContext {
                           .unwrap();
         let result = receiver.recv().unwrap();
 
-        result.map(|(webgl_sender, context_limits, context_texture)| {
+        result.map(|ctx_data| {
             WebGLRenderingContext {
                 reflector_: Reflector::new(),
-                webgl_sender: webgl_sender,
-                limits: context_limits,
-                context_texture: context_texture,
+                webgl_sender: ctx_data.sender,
+                webrender_image: Cell::new(ctx_data.image_key),
+                limits: ctx_data.limits,
                 canvas: JS::from_ref(canvas),
                 last_error: Cell::new(None),
                 texture_unpacking_settings: Cell::new(CONVERT_COLORSPACE),
@@ -254,7 +256,20 @@ impl WebGLRenderingContext {
     }
 
     pub fn recreate(&self, size: Size2D<i32>) {
-        self.webgl_sender.send_resize(size);
+        let (sender, receiver) = webgl_channel().unwrap();
+        self.webgl_sender.send_resize(size, sender);
+        
+        let image_key = match receiver.recv().unwrap() {
+            Ok(image_key) => {
+                image_key
+            },
+            Err(msg) => {
+                error!("Error resizing WebGLContext: {}", msg);
+                return;
+            }
+        };
+
+        self.webrender_image.set(image_key);
 
         // ClearColor needs to be restored because after a resize the GLContext is recreated
         // and the framebuffer is cleared using the default black transparent color.
@@ -1051,6 +1066,10 @@ impl WebGLRenderingContext {
         let (sender, receiver) = webgl_channel().unwrap();
         self.send_command(WebGLCommand::GetExtensions(sender));
         receiver.recv().unwrap()
+    }
+
+    fn handle_layout(&self) -> webrender_traits::ImageKey {
+        self.webrender_image.get()
     }
 }
 
@@ -3355,17 +3374,7 @@ pub trait LayoutCanvasWebGLRenderingContextHelpers {
 impl LayoutCanvasWebGLRenderingContextHelpers for LayoutJS<WebGLRenderingContext> {
     #[allow(unsafe_code)]
     unsafe fn canvas_data_source(&self) -> HTMLCanvasDataSource {
-        HTMLCanvasDataSource::WebGL((*self.unsafe_get()).context_texture)
-        /*match (*self.unsafe_get()).webgl_context_source {
-            WebGLContextSource::WebRender(ref ctx_id) => {
-                HTMLCanvasDataSource::WebGL(ctx_id.clone())
-            },
-            WebGLContextSource::Readback(ref sender) => {
-                // TODO
-                unimplemented!();
-                //HTMLCanvasDataSource::Image(Some(sender.clone()))
-            }
-        }*/
+        HTMLCanvasDataSource::WebGL((*self.unsafe_get()).handle_layout())
     }
 }
 

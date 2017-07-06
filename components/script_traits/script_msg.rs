@@ -13,7 +13,7 @@ use MozBrowserEvent;
 use WorkerGlobalScopeInit;
 use WorkerScriptLoadOrigin;
 use canvas_traits::canvas::CanvasMsg;
-use canvas_traits::webgl::WebGLMsgSender;
+use canvas_traits::webgl::WebGLContextData;
 use devtools_traits::{ScriptToDevtoolsControlMsg, WorkerId};
 use euclid::{Point2D, Size2D, TypedSize2D};
 use ipc_channel::ipc::IpcSender;
@@ -22,7 +22,7 @@ use msg::constellation_msg::{Key, KeyModifiers, KeyState};
 use net_traits::CoreResourceMsg;
 use net_traits::request::RequestInit;
 use net_traits::storage_thread::StorageType;
-use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use offscreen_gl_context::GLContextAttributes;
 use servo_url::ImmutableOrigin;
 use servo_url::ServoUrl;
 use style_traits::CSSPixel;
@@ -72,7 +72,7 @@ pub enum ScriptMsg {
     /// for cross-origin loads
     InitiateNavigateRequest(RequestInit, PipelineId),
     /// Broadcast a storage event to every same-origin pipeline.
-    /// The strings are key, old value and new value.
+    /// The strings are key, old value and new value.cons
     BroadcastStorageEvent(PipelineId, StorageType, ServoUrl, Option<String>, Option<String>, Option<String>),
     /// Indicates whether this pipeline is currently running animations.
     ChangeRunningAnimationsState(PipelineId, AnimationState),
@@ -81,9 +81,7 @@ pub enum ScriptMsg {
     CreateCanvasPaintThread(Size2D<i32>, IpcSender<IpcSender<CanvasMsg>>),
     /// Requests that a new WebGL thread be created. (This is done in the constellation because
     /// WebGL uses the GPU and we don't want to give untrusted content access to the GPU.)
-    CreateWebGLContext(Size2D<i32>,
-                       GLContextAttributes,
-                       IpcSender<Result<(WebGLMsgSender, GLLimits, u32), String>>),
+    CreateWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<WebGLContextData, String>>),
     /// Notifies the constellation that this frame has received focus.
     Focus(PipelineId),
     /// Forward an event that was sent to the parent window.

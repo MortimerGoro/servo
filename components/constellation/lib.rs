@@ -6,6 +6,7 @@
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 #![feature(mpsc_select)]
+#![feature(option_entry)]
 
 extern crate backtrace;
 extern crate bluetooth_traits;
