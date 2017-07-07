@@ -16,7 +16,6 @@ use dom::webglrenderingcontext::MAX_UNIFORM_AND_ATTRIBUTE_LEN;
 use dom::webglshader::WebGLShader;
 use dom::window::Window;
 use dom_struct::dom_struct;
-use ipc_channel::ipc::IpcSender;
 use std::cell::Cell;
 
 #[dom_struct]

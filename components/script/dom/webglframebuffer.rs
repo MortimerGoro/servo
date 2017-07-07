@@ -15,7 +15,6 @@ use dom::webglrenderbuffer::WebGLRenderbuffer;
 use dom::webgltexture::WebGLTexture;
 use dom::window::Window;
 use dom_struct::dom_struct;
-use ipc_channel::ipc::IpcSender;
 use std::cell::Cell;
 
 #[must_root]

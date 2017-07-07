@@ -50,7 +50,7 @@ impl WebGLBuffer {
     pub fn maybe_new(window: &Window, renderer: WebGLMsgSender)
                      -> Option<Root<WebGLBuffer>> {
         let (sender, receiver) = webgl_channel().unwrap();
-        renderer.send(WebGLCommand::CreateBuffer(sender));
+        renderer.send(WebGLCommand::CreateBuffer(sender)).unwrap();
 
         let result = receiver.recv().unwrap();
         result.map(|buffer_id| WebGLBuffer::new(window, renderer, buffer_id))
@@ -93,7 +93,7 @@ impl WebGLBuffer {
             }
         }
         self.capacity.set(data.len());
-        self.renderer.send(WebGLCommand::BufferData(target, data.to_vec(), usage));
+        self.renderer.send(WebGLCommand::BufferData(target, data.to_vec(), usage)).unwrap();
 
         Ok(())
     }

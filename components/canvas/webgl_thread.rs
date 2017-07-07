@@ -11,6 +11,7 @@ use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLCon
 use std::collections::HashMap;
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
+use webrender;
 use webrender_traits;
 
 pub struct WebGLThread {
@@ -72,6 +73,15 @@ impl WebGLThread {
                     WebGLMsg::WebVRCommand(ctx_id, command) => {
                         renderer.handle_webvr_command(ctx_id, command);
                     },
+                    WebGLMsg::Lock(ctx_id, sender) => {
+                        renderer.handle_lock(ctx_id, sender);
+                    },
+                    WebGLMsg::Unlock(ctx_id) => {
+                        renderer.handle_unlock(ctx_id);
+                    },
+                    WebGLMsg::Exit => {
+                        return;
+                    },
                 }
             }
         }).expect("Thread spawning failed");
@@ -103,6 +113,24 @@ impl WebGLThread {
         self.webvr_compositor.as_mut().unwrap().handle(command, texture.map(|d| (d.0, d.1)));
     }
 
+    fn handle_lock(&mut self, context_id: WebGLContextId, sender: WebGLSender<u32>) {
+        let ctx = &self.contexts[&context_id];
+        if Some(context_id) != self.current_bound_webgl_context_id {
+            ctx.make_current();
+            self.current_bound_webgl_context_id = Some(context_id);
+        }
+        let info = self.cached_context_info[&context_id];
+        sender.send(info.0).unwrap();
+    }
+
+    fn handle_unlock(&mut self, context_id: WebGLContextId) {
+        let ctx = &self.contexts[&context_id];
+        if Some(context_id) != self.current_bound_webgl_context_id {
+            ctx.make_current();
+            self.current_bound_webgl_context_id = Some(context_id);
+        }
+    }
+
     fn create_webgl_context(&mut self,
                             size: Size2D<i32>,
                             attributes: GLContextAttributes)
@@ -119,9 +147,9 @@ impl WebGLThread {
             Ok(ctx) => {
                 let id = WebGLContextId(self.next_webgl_id);
                 let (real_size, texture_id, limits) = ctx.get_info();
-                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, texture_id);
                 self.next_webgl_id += 1;
                 self.contexts.insert(id, ctx);
+                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, id);
                 self.cached_context_info.insert(id, (texture_id, real_size, image_key));
 
                 Ok((id, limits, image_key))
@@ -146,7 +174,7 @@ impl WebGLThread {
                 // Update webgl texture size. Texture id may change too.
                 let (real_size, texture_id, _) = ctx.get_info();
                 // TODO remove old image keys
-                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, texture_id);
+                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, context_id);
                 self.cached_context_info.insert(context_id, (texture_id, real_size, image_key));
                 sender.send(Ok(image_key)).unwrap();
             },
@@ -164,7 +192,7 @@ impl WebGLThread {
 
     fn create_webrender_image(webrender_api: &webrender_traits::RenderApi,
                               size: Size2D<i32>,
-                              texture_id: u32) -> webrender_traits::ImageKey {
+                              context_id: WebGLContextId) -> webrender_traits::ImageKey {
         let descriptor = webrender_traits::ImageDescriptor {
             width: size.width as u32,
             height: size.height as u32,
@@ -175,7 +203,7 @@ impl WebGLThread {
         };
 
         let data = webrender_traits::ExternalImageData {
-            id: webrender_traits::ExternalImageId(texture_id as u64),
+            id: webrender_traits::ExternalImageId(context_id.0 as u64),
             channel_index: 0,
             image_type: webrender_traits::ExternalImageType::Texture2DHandle,
         };
@@ -189,6 +217,56 @@ impl WebGLThread {
         image_key
     }
 }
+
+
+// External Image Handler
+pub struct WebGLExternalImageHandler {
+    webgl_chan: WebGLSender<WebGLMsg>,
+    lock_chan: (WebGLSender<u32>, WebGLReceiver<u32>),
+}
+
+impl WebGLExternalImageHandler {
+    pub fn new(webgl_chan: WebGLSender<WebGLMsg>) -> Self {
+        Self {
+            webgl_chan: webgl_chan,
+            lock_chan: webgl_channel().unwrap(),
+        }
+    }
+}
+
+impl webrender::ExternalImageHandler for WebGLExternalImageHandler {
+    /// Lock the external image. Then, WR could start to read the image content.
+    /// The WR client should not change the image content until the unlock()
+    /// call.
+    fn lock(&mut self,
+            key: webrender_traits::ExternalImageId,
+            _channel_index: u8)-> webrender::ExternalImage {
+        println!("lock");
+        let ctx_id = WebGLContextId(key.0 as _);
+        self.webgl_chan.send(WebGLMsg::Lock(ctx_id, self.lock_chan.0.clone())).unwrap();
+        let texture_id = self.lock_chan.1.recv().unwrap();
+
+        webrender::ExternalImage {
+            u0: 0.0,
+            u1: 1.0,
+            v0: 0.0,
+            v1: 1.0,
+            source: webrender::ExternalImageSource::NativeTexture(texture_id),
+        }
+
+    }
+    /// Unlock the external image. The WR should not read the image content
+    /// after this call.
+    fn unlock(&mut self,
+              key: webrender_traits::ExternalImageId,
+              _channel_index: u8) {
+        println!("unlock");
+        let ctx_id = WebGLContextId(key.0 as _);
+        self.webgl_chan.send(WebGLMsg::Unlock(ctx_id)).unwrap();
+    }
+}
+
+// WebGL Commands Implementation
 
 pub struct WebGLImpl;
 

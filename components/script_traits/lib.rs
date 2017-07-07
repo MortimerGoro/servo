@@ -769,8 +769,6 @@ pub enum ConstellationMsg {
     Reload(TopLevelBrowsingContextId),
     /// A log entry, with the top-level browsing context id and thread name
     LogEntry(Option<TopLevelBrowsingContextId>, Option<String>, LogEntry),
-    /// Set the WebVR thread channel.
-    SetWebVRThread(IpcSender<WebVRMsg>),
     /// Dispatch WebVR events to the subscribed script threads.
     WebVREvents(Vec<PipelineId>, Vec<WebVREvent>),
 }

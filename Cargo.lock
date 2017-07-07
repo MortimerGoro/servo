@@ -320,6 +320,7 @@ dependencies = [
  "num-traits 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "offscreen_gl_context 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo_config 0.0.1",
+ "webrender 0.44.0 (git+https://github.com/servo/webrender)",
  "webrender_traits 0.44.0 (git+https://github.com/servo/webrender)",
 ]
 
@@ -3401,12 +3402,13 @@ dependencies = [
 name = "webvr"
 version = "0.0.1"
 dependencies = [
+ "canvas_traits 0.0.1",
+ "euclid 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ipc-channel 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "msg 0.0.1",
  "script_traits 0.0.1",
  "servo_config 0.0.1",
- "webrender_traits 0.44.0 (git+https://github.com/servo/webrender)",
  "webvr_traits 0.0.1",
 ]
 

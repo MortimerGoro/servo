@@ -45,7 +45,7 @@ use dom::window::Window;
 use dom_struct::dom_struct;
 use euclid::Size2D;
 use half::f16;
-use ipc_channel::ipc::{self, IpcSender};
+use ipc_channel::ipc;
 use js::conversions::ConversionBehavior;
 use js::jsapi::{JSContext, JSObject, Type, Rooted};
 use js::jsval::{BooleanValue, DoubleValue, Int32Value, JSVal, NullValue, UndefinedValue};
@@ -257,7 +257,7 @@ impl WebGLRenderingContext {
 
     pub fn recreate(&self, size: Size2D<i32>) {
         let (sender, receiver) = webgl_channel().unwrap();
-        self.webgl_sender.send_resize(size, sender);
+        self.webgl_sender.send_resize(size, sender).unwrap();
         
         let image_key = match receiver.recv().unwrap() {
             Ok(image_key) => {
@@ -1069,13 +1069,14 @@ impl WebGLRenderingContext {
     }
 
     fn handle_layout(&self) -> webrender_traits::ImageKey {
+        println!("mortimer!");
         self.webrender_image.get()
     }
 }
 
 impl Drop for WebGLRenderingContext {
     fn drop(&mut self) {
-        self.webgl_sender.send_remove();
+        self.webgl_sender.send_remove().unwrap();
     }
 }
 

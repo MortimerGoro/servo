@@ -35,6 +35,9 @@ pub enum WebGLMsg {
     RemoveContext(WebGLContextId),
     WebGLCommand(WebGLContextId, WebGLCommand),
     WebVRCommand(WebGLContextId, WebVRCommand),
+    Lock(WebGLContextId, WebGLSender<u32>),
+    Unlock(WebGLContextId),
+    Exit,
 }
 
 #[derive(Clone, Deserialize, HeapSizeOf, Serialize)]

@@ -104,25 +104,31 @@ void main() {
    itemSize = 2; // we have 2 coordinates (x,y)
    numItems = vertices.length / itemSize; // number of vertices
 
-   // Viewport
-   gl.viewport(0, 0, canvas.width, canvas.height);
-   gl.clearColor(0, 0, 0, 1);
-   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+   function render() {
+      // Viewport
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(1.0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-   // Setup Geometry
-   gl.useProgram(program);
+      // Setup Geometry
+      gl.useProgram(program);
 
-   program.aVertexPosition = gl.getAttribLocation(program, "aVertexPosition");
-   gl.enableVertexAttribArray(program.aVertexPosition);
-   gl.vertexAttribPointer(program.aVertexPosition, itemSize, gl.FLOAT, false, 0, 0);
+      program.aVertexPosition = gl.getAttribLocation(program, "aVertexPosition");
+      gl.enableVertexAttribArray(program.aVertexPosition);
+      gl.vertexAttribPointer(program.aVertexPosition, itemSize, gl.FLOAT, false, 0, 0);
 
-   program.aColour = gl.getAttribLocation(program, "aColour");
-   console.log("aColour: " + program.aColour);
-   gl.enableVertexAttribArray(program.aColour);
-   gl.vertexAttribPointer(program.aColour, 4, gl.FLOAT, false, 0, 24);
+      program.aColour = gl.getAttribLocation(program, "aColour");
+      console.log("aColour: " + program.aColour);
+      gl.enableVertexAttribArray(program.aColour);
+      gl.vertexAttribPointer(program.aColour, 4, gl.FLOAT, false, 0, 24);
 
-   // Draw
-   gl.drawArrays(gl.TRIANGLES, 0, 3);
+      // Draw
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      window.requestAnimationFrame(render);
+   }
+
+   window.requestAnimationFrame(render);
+
 
 })();
 </script>

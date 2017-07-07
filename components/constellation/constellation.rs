@@ -70,10 +70,8 @@ use bluetooth_traits::BluetoothRequest;
 use browsingcontext::{BrowsingContext, SessionHistoryChange, SessionHistoryEntry};
 use browsingcontext::{FullyActiveBrowsingContextsIterator, AllBrowsingContextsIterator};
 use canvas::canvas_paint_thread::CanvasPaintThread;
-use canvas::gl_context::GLContextFactory;
-use canvas::webgl_thread::WebGLThread;
 use canvas_traits::canvas::CanvasMsg;
-use canvas_traits::webgl::{WebGLContextData, WebGLMsg, WebGLMsgSender, WebGLSender};
+use canvas_traits::webgl::{WebGLContextData, WebGLMsg, WebGLSender};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use compositing::SendableFrameTree;
 use compositing::compositor_thread::CompositorProxy;
@@ -98,7 +96,7 @@ use net_traits::pub_domains::reg_host;
 use net_traits::request::RequestInit;
 use net_traits::storage_thread::{StorageThreadMsg, StorageType};
 use network_listener::NetworkListener;
-use offscreen_gl_context::{GLContextAttributes, GLLimits};
+use offscreen_gl_context::GLContextAttributes;
 use pipeline::{InitialPipelineState, Pipeline};
 use profile_traits::mem;
 use profile_traits::time;
@@ -294,12 +292,11 @@ pub struct Constellation<Message, LTF, STF> {
     /// Phantom data that keeps the Rust type system happy.
     phantom: PhantomData<(Message, LTF, STF)>,
 
-    /// An IPC channel for the constellation to send messages to the
-    /// WebGL Renderer Thread.
-    webgl_thread: Option<WebGLSender<WebGLMsg>>,
+    /// An IPC channel for the constellation to send messages to the WebGL Renderer Thread.
+    webgl_chan: WebGLSender<WebGLMsg>,
 
     /// A channel through which messages can be sent to the webvr thread.
-    webvr_thread: Option<IpcSender<WebVRMsg>>,
+    webvr_chan: Option<IpcSender<WebVRMsg>>,
 }
 
 /// State needed to construct a constellation.
@@ -330,6 +327,12 @@ pub struct InitialConstellationState {
 
     /// A channel to the memory profiler thread.
     pub mem_profiler_chan: mem::ProfilerChan,
+
+    /// A channel to the webgl thread.
+    pub webgl_chan: WebGLSender<WebGLMsg>,
+
+        /// A channel to the webgl thread.
+    pub webvr_chan: Option<IpcSender<WebVRMsg>>,
 
     /// Webrender API.
     pub webrender_api_sender: webrender_traits::RenderApiSender,
@@ -577,8 +580,8 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
                     info!("Using seed {} for random pipeline closure.", seed);
                     (rng, prob)
                 }),
-                webgl_thread: None,
-                webvr_thread: None,
+                webgl_chan: state.webgl_chan,
+                webvr_chan: state.webvr_chan,
             };
 
             constellation.run();
@@ -693,7 +696,7 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             prev_visibility: prev_visibility,
             webrender_api_sender: self.webrender_api_sender.clone(),
             is_private: is_private,
-            webvr_thread: self.webvr_thread.clone()
+            webvr_thread: self.webvr_chan.clone()
         });
 
         let pipeline = match result {
@@ -980,10 +983,6 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             }
             FromCompositorMsg::LogEntry(top_level_browsing_context_id, thread_name, entry) => {
                 self.handle_log_entry(top_level_browsing_context_id, thread_name, entry);
-            }
-            FromCompositorMsg::SetWebVRThread(webvr_thread) => {
-                assert!(self.webvr_thread.is_none());
-                self.webvr_thread = Some(webvr_thread)
             }
             FromCompositorMsg::WebVREvents(pipeline_ids, events) => {
                 debug!("constellation got {:?} WebVR events", events.len());
@@ -1335,7 +1334,12 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             }
         }
 
-        if let Some(chan) = self.webvr_thread.as_ref() {
+        debug!("Exiting WebGL thread.");
+        if let Err(e) = self.webgl_chan.send(WebGLMsg::Exit) {
+            warn!("Exit WebGL Thread failed ({})", e);
+        }
+
+        if let Some(chan) = self.webvr_chan.as_ref() {
             debug!("Exiting WebVR thread.");
             if let Err(e) = chan.send(WebVRMsg::Exit) {
                 warn!("Exit WebVR thread failed ({})", e);
@@ -2083,18 +2087,11 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
     }
 
     fn handle_create_webgl_context_msg(
-            &mut self,
+            &self,
             size: &Size2D<i32>,
             attributes: GLContextAttributes,
             response_sender: IpcSender<Result<WebGLContextData, String>>) {
-        // Lazy initialization
-        let webrender_api = self.webrender_api_sender.clone();
-        let webgl_thread = self.webgl_thread.get_or_insert_with(|| {
-            let factory = GLContextFactory::current_native_handle().unwrap();
-            WebGLThread::start(factory, webrender_api, None)
-        });
-        
-        webgl_thread.send(WebGLMsg::CreateContext(*size, attributes, response_sender));
+        self.webgl_chan.send(WebGLMsg::CreateContext(*size, attributes, response_sender)).unwrap();
     }
 
     fn handle_webdriver_msg(&mut self, msg: WebDriverCommandMsg) {

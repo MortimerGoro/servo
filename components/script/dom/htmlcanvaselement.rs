@@ -30,7 +30,7 @@ use euclid::Size2D;
 use html5ever::{LocalName, Prefix};
 use image::ColorType;
 use image::png::PNGEncoder;
-use ipc_channel::ipc::{self, IpcSender};
+use ipc_channel::ipc;
 use js::error::throw_type_error;
 use js::jsapi::{HandleValue, JSContext};
 use offscreen_gl_context::GLContextAttributes;
