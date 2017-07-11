@@ -2,26 +2,85 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#[cfg(feature = "nightly")]
 use core::nonzero::NonZero;
 use euclid::Size2D;
-use ipc_channel::{ipc, self};
-use ipc_channel::ipc::{IpcReceiver, IpcSender};
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
-use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::io;
 use webrender_traits;
 
-pub type WebGLSender<T> = IpcSender<T>;
-pub type WebGLReceiver<T> = IpcReceiver<T>;
-pub type WebGLChannelError = ipc_channel::Error;
+#[cfg(feature = "ipc")]
+mod channel {
+    use ipc_channel;
+    use serde::{Deserialize, Serialize};
+    use std::io;
 
-pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), io::Error> {
-    ipc::channel()
+    pub type WebGLSender<T> = ipc_channel::ipc::IpcSender<T>;
+    pub type WebGLReceiver<T> = ipc_channel::ipc::IpcReceiver<T>;
+    pub type WebGLSendResult = Result<(), ipc_channel::Error>;
+
+    pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), io::Error> {
+        ipc_channel::ipc::channel()
+    }
 }
 
-#[derive(Deserialize, Serialize)]
+#[cfg(not(feature = "ipc"))]
+mod channel {
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+    use std::sync::mpsc;
+
+    #[derive(Clone)]
+    pub struct WebGLSender<T>(mpsc::Sender<T>);
+    pub struct WebGLReceiver<T>(mpsc::Receiver<T>);
+    pub type WebGLSendResult = Result<(), mpsc::SendError<WebGLMsg>>;
+
+    impl<T> WebGLSender<T> {
+        #[inline]
+        pub fn send(&self, data: T) -> Result<(), mpsc::SendError<T>> {
+            self.0.send(data)
+        }
+    }
+
+    impl<T> WebGLReceiver<T> {
+        #[inline]
+        pub fn recv(&self) -> Result<T, mpsc::RecvError> {
+            self.0.recv()
+        }
+    }
+
+    pub fn webgl_channel<T>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), ()> {
+        let (sender, receiver) = mpsc::channel();
+        Ok((WebGLSender(sender), WebGLReceiver(receiver)))
+    }
+
+    macro_rules! unreachable_serializable {
+        ($name:ident) => {
+            impl<T> Serialize for $name<T> {
+                fn serialize<S: Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                    unreachable!();
+                }
+            }
+
+            impl<'a, T> Deserialize<'a> for $name<T> {
+                fn deserialize<D>(_: D) -> Result<$name<T>, D::Error>
+                                where D: Deserializer<'a> {
+                    unreachable!();
+                }
+            }
+        };
+    }
+
+    unreachable_serializable!(WebGLSender);
+    unreachable_serializable!(WebGLReceiver);
+}
+
+
+pub use self::channel::WebGLSender;
+pub use self::channel::WebGLReceiver;
+pub use self::channel::WebGLSendResult;
+pub use self::channel::webgl_channel;
+
+#[derive(Clone, Deserialize, Serialize)]
 pub struct WebGLContextData {
     pub sender: WebGLMsgSender,
     pub limits: GLLimits,
@@ -35,8 +94,9 @@ pub enum WebGLMsg {
     RemoveContext(WebGLContextId),
     WebGLCommand(WebGLContextId, WebGLCommand),
     WebVRCommand(WebGLContextId, WebVRCommand),
-    Lock(WebGLContextId, WebGLSender<u32>),
+    Lock(WebGLContextId, WebGLSender<(u32, Size2D<i32>)>),
     Unlock(WebGLContextId),
+    Update(WebGLContextId, WebGLSender<()>),
     Exit,
 }
 
@@ -56,12 +116,12 @@ impl WebGLMsgSender {
     }
 
     #[inline]
-    pub fn send(&self, command: WebGLCommand) -> Result<(),WebGLChannelError> {
+    pub fn send(&self, command: WebGLCommand) -> WebGLSendResult {
         self.sender.send(WebGLMsg::WebGLCommand(self.ctx_id, command))
     }
 
     #[inline]
-    pub fn send_vr(&self, command: WebVRCommand) -> Result<(),WebGLChannelError> {
+    pub fn send_vr(&self, command: WebVRCommand) -> WebGLSendResult {
         self.sender.send(WebGLMsg::WebVRCommand(self.ctx_id, command))
     }
 
@@ -69,13 +129,18 @@ impl WebGLMsgSender {
     pub fn send_resize(&self,
                        size: Size2D<i32>,
                        sender: WebGLSender<Result<webrender_traits::ImageKey, String>>)
-                       -> Result<(),WebGLChannelError> {
+                       -> WebGLSendResult {
         self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size, sender))
     }
 
     #[inline]
-    pub fn send_remove(&self) -> Result<(),WebGLChannelError> {
+    pub fn send_remove(&self) -> WebGLSendResult {
         self.sender.send(WebGLMsg::RemoveContext(self.ctx_id))
+    }
+
+    #[inline]
+    pub fn send_update(&self, sender: WebGLSender<()>) -> WebGLSendResult {
+        self.sender.send(WebGLMsg::Update(self.ctx_id, sender))
     }
 }
 
@@ -199,7 +264,6 @@ pub enum WebGLCommand {
     BindVertexArray(Option<WebGLVertexArrayId>),
 }
 
-#[cfg(feature = "nightly")]
 macro_rules! define_resource_id_struct {
     ($name:ident) => {
         #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -214,31 +278,10 @@ macro_rules! define_resource_id_struct {
 
             #[inline]
             pub fn get(self) -> u32 {
-                *self.0
+                self.0.get()
             }
         }
 
-    };
-}
-
-#[cfg(not(feature = "nightly"))]
-macro_rules! define_resource_id_struct {
-    ($name:ident) => {
-        #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-        pub struct $name(u32);
-
-        impl $name {
-            #[allow(unsafe_code)]
-            #[inline]
-            pub unsafe fn new(id: u32) -> Self {
-                $name(id)
-            }
-
-            #[inline]
-            pub fn get(self) -> u32 {
-                self.0
-            }
-        }
     };
 }
 
@@ -482,4 +525,3 @@ impl fmt::Debug for WebGLCommand {
         write!(f, "CanvasWebGLMsg::{}(..)", name)
     }
 }
-

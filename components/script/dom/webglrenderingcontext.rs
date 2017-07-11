@@ -1069,7 +1069,9 @@ impl WebGLRenderingContext {
     }
 
     fn handle_layout(&self) -> webrender_traits::ImageKey {
-        println!("mortimer!");
+        //let (sender, receiver) = webgl_channel().unwrap();
+        //self.webgl_sender.send_update(sender).unwrap();
+        //receiver.recv().unwrap();
         self.webrender_image.get()
     }
 }

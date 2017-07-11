@@ -32,7 +32,7 @@ use style::computed_values::{border_style, filter, image_rendering};
 use style_traits::cursor::Cursor;
 use text::TextRun;
 use text::glyph::ByteIndex;
-use webrender_traits::{self, ClipId, ColorF, GradientStop, MixBlendMode, ScrollPolicy, TransformStyle, WebGLContextId};
+use webrender_traits::{self, ClipId, ColorF, GradientStop, MixBlendMode, ScrollPolicy, TransformStyle};
 
 pub use style::dom::OpaqueNode;
 
@@ -588,7 +588,6 @@ pub enum DisplayItem {
     SolidColor(Box<SolidColorDisplayItem>),
     Text(Box<TextDisplayItem>),
     Image(Box<ImageDisplayItem>),
-    WebGL(Box<WebGLDisplayItem>),
     Border(Box<BorderDisplayItem>),
     Gradient(Box<GradientDisplayItem>),
     RadialGradient(Box<RadialGradientDisplayItem>),
@@ -926,14 +925,6 @@ pub struct ImageDisplayItem {
     /// 5.3.
     pub image_rendering: image_rendering::T,
 }
-
-#[derive(Clone, HeapSizeOf, Deserialize, Serialize)]
-pub struct WebGLDisplayItem {
-    pub base: BaseDisplayItem,
-    pub context_id: WebGLContextId,
-}
-
-
 /// Paints an iframe.
 #[derive(Clone, HeapSizeOf, Deserialize, Serialize)]
 pub struct IframeDisplayItem {
@@ -1223,7 +1214,6 @@ impl DisplayItem {
             DisplayItem::SolidColor(ref solid_color) => &solid_color.base,
             DisplayItem::Text(ref text) => &text.base,
             DisplayItem::Image(ref image_item) => &image_item.base,
-            DisplayItem::WebGL(ref webgl_item) => &webgl_item.base,
             DisplayItem::Border(ref border) => &border.base,
             DisplayItem::Gradient(ref gradient) => &gradient.base,
             DisplayItem::RadialGradient(ref gradient) => &gradient.base,
@@ -1343,7 +1333,6 @@ impl fmt::Debug for DisplayItem {
                                 text.range.begin().0 as usize..(text.range.begin().0 + text.range.length().0) as usize])
                 }
                 DisplayItem::Image(_) => "Image".to_owned(),
-                DisplayItem::WebGL(_) => "WebGL".to_owned(),
                 DisplayItem::Border(_) => "Border".to_owned(),
                 DisplayItem::Gradient(_) => "Gradient".to_owned(),
                 DisplayItem::RadialGradient(_) => "RadialGradient".to_owned(),

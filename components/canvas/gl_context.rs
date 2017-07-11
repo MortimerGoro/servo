@@ -94,6 +94,30 @@ impl GLContextWrapper {
         }
     }
 
+    pub fn lock(&self) -> gl::GLsync {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                ctx.gl().fence_sync(gl::SYNC_GPU_COMMANDS_COMPLETE, 0)
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.gl().fence_sync(gl::SYNC_GPU_COMMANDS_COMPLETE, 0)
+            }
+        }
+    }
+
+    pub fn unlock(&self, sync: gl::GLsync) {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                ctx.gl().wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, gl::TIMEOUT_IGNORED);
+                ctx.gl().delete_sync(sync);
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.gl().wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, gl::TIMEOUT_IGNORED);
+                ctx.gl().delete_sync(sync);
+            }
+        }
+    }
+
     pub fn get_info(&self) -> (Size2D<i32>, u32, GLLimits) {
         match *self {
             GLContextWrapper::Native(ref ctx) => {

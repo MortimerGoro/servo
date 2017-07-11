@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use canvas_traits::webgl::WebVRCommand;
+use canvas_traits::webgl::{webgl_channel, WebGLReceiver, WebVRCommand};
 use core::ops::Deref;
 use dom::bindings::callback::ExceptionHandling;
 use dom::bindings::cell::DOMRefCell;
@@ -31,7 +31,7 @@ use dom::vrpose::VRPose;
 use dom::vrstageparameters::VRStageParameters;
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use dom_struct::dom_struct;
-use ipc_channel::ipc;
+use ipc_channel::ipc::{self, IpcSender};
 use ipc_channel::ipc::{IpcSender, IpcReceiver};
 use js::jsapi::JSContext;
 use script_runtime::CommonScriptMsg;
@@ -69,7 +69,7 @@ pub struct VRDisplay {
     // Compositor VRFrameData synchonization
     frame_data_status: Cell<VRFrameDataStatus>,
     #[ignore_heap_size_of = "channels are hard"]
-    frame_data_receiver: DOMRefCell<Option<IpcReceiver<Result<Vec<u8>, ()>>>>,
+    frame_data_receiver: DOMRefCell<Option<WebGLReceiver<Result<Vec<u8>, ()>>>>,
     running_display_raf: Cell<bool>,
     paused: Cell<bool>,
     stopped_on_pause: Cell<bool>,
@@ -470,7 +470,7 @@ impl VRDisplay {
 
     fn init_present(&self) {
         self.presenting.set(true);
-        let (sync_sender, sync_receiver) = ipc::channel().unwrap();
+        let (sync_sender, sync_receiver) = webgl_channel().unwrap();
         *self.frame_data_receiver.borrow_mut() = Some(sync_receiver);
 
         let display_id = self.display.borrow().display_id;
@@ -607,7 +607,7 @@ impl Runnable for NotifyDisplayRAF {
 }
 
 
-// WebVR Spect: If the number of values in the leftBounds/rightBounds arrays
+// WebVR Spec: If the number of values in the leftBounds/rightBounds arrays
 // is not 0 or 4 for any of the passed layers the promise is rejected
 fn parse_bounds(src: &Option<Vec<Finite<f32>>>, dst: &mut [f32; 4]) -> Result<(), &'static str> {
     match *src {

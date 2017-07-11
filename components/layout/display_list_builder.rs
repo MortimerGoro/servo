@@ -28,7 +28,7 @@ use gfx::display_list::{DisplayItem, DisplayItemMetadata, DisplayList, DisplayLi
 use gfx::display_list::{GradientDisplayItem, RadialGradientDisplayItem, IframeDisplayItem, ImageDisplayItem};
 use gfx::display_list::{LineDisplayItem, OpaqueNode};
 use gfx::display_list::{SolidColorDisplayItem, ScrollRoot, StackingContext, StackingContextType};
-use gfx::display_list::{TextDisplayItem, TextOrientation, WebGLDisplayItem, WebRenderImageInfo};
+use gfx::display_list::{TextDisplayItem, TextOrientation, WebRenderImageInfo};
 use gfx_traits::{combine_id_with_fragment_type, FragmentType, StackingContextId};
 use inline::{FIRST_FRAGMENT_OF_ELEMENT, InlineFlow, LAST_FRAGMENT_OF_ELEMENT};
 use ipc_channel::ipc;
