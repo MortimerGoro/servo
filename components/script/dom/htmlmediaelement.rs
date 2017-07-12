@@ -291,6 +291,7 @@ impl HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#internal-pause-steps step 2.2
     fn queue_internal_pause_steps_task(&self) {
+        return;
         struct Task {
             elem: Trusted<HTMLMediaElement>,
         }
@@ -330,6 +331,7 @@ impl HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#ready-states
     fn change_ready_state(&self, ready_state: u16) {
+        return;
         let old_ready_state = self.ready_state.get();
         self.ready_state.set(ready_state);
 
@@ -422,6 +424,7 @@ impl HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#concept-media-load-algorithm
     fn invoke_resource_selection_algorithm(&self) {
+        return;
         // Step 1
         self.network_state.set(NETWORK_NO_SOURCE);
 
@@ -440,6 +443,7 @@ impl HTMLMediaElement {
     // https://html.spec.whatwg.org/multipage/#concept-media-load-algorithm
     #[allow(unreachable_code)]
     fn resource_selection_algorithm_sync(&self, base_url: ServoUrl) {
+        return;
         // TODO step 5 (populate pending text tracks)
 
         // Step 6
@@ -501,6 +505,7 @@ impl HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#concept-media-load-resource
     fn resource_fetch_algorithm(&self, resource: Resource) {
+        return;
         // TODO step 3 (remove text tracks)
 
         // Step 4
@@ -572,6 +577,7 @@ impl HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#dedicated-media-source-failure-steps
     fn dedicated_media_source_failure(&self) {
+        return;
         // Step 1
         self.error.set(Some(&*MediaError::new(&*window_from_node(self),
                                               MEDIA_ERR_SRC_NOT_SUPPORTED)));
@@ -592,6 +598,7 @@ impl HTMLMediaElement {
 
     // https://html.spec.whatwg.org/multipage/#media-element-load-algorithm
     fn media_element_load_algorithm(&self) {
+        return;
         self.first_data_load.set(true);
 
         // TODO Step 1 (abort resource selection algorithm instances)
