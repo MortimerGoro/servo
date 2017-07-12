@@ -32,7 +32,7 @@ mod channel {
     #[derive(Clone)]
     pub struct WebGLSender<T>(mpsc::Sender<T>);
     pub struct WebGLReceiver<T>(mpsc::Receiver<T>);
-    pub type WebGLSendResult = Result<(), mpsc::SendError<WebGLMsg>>;
+    pub type WebGLSendResult = Result<(), mpsc::SendError<super::WebGLMsg>>;
 
     impl<T> WebGLSender<T> {
         #[inline]

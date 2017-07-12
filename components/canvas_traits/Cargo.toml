@@ -10,7 +10,7 @@ name = "canvas_traits"
 path = "lib.rs"
 
 [features]
-default = ["ipc"]
+#default = ["ipc"]
 ipc = []
 
 [dependencies]

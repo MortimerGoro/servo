@@ -71,7 +71,7 @@ use browsingcontext::{BrowsingContext, SessionHistoryChange, SessionHistoryEntry
 use browsingcontext::{FullyActiveBrowsingContextsIterator, AllBrowsingContextsIterator};
 use canvas::canvas_paint_thread::CanvasPaintThread;
 use canvas_traits::canvas::CanvasMsg;
-use canvas_traits::webgl::{WebGLContextData, WebGLMsg, WebGLSender};
+use canvas_traits::webgl::{WebGLMsg, WebGLSender};
 use clipboard::{ClipboardContext, ClipboardProvider};
 use compositing::SendableFrameTree;
 use compositing::compositor_thread::CompositorProxy;
@@ -96,7 +96,6 @@ use net_traits::pub_domains::reg_host;
 use net_traits::request::RequestInit;
 use net_traits::storage_thread::{StorageThreadMsg, StorageType};
 use network_listener::NetworkListener;
-use offscreen_gl_context::GLContextAttributes;
 use pipeline::{InitialPipelineState, Pipeline};
 use profile_traits::mem;
 use profile_traits::time;
@@ -696,7 +695,8 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             prev_visibility: prev_visibility,
             webrender_api_sender: self.webrender_api_sender.clone(),
             is_private: is_private,
-            webvr_thread: self.webvr_chan.clone()
+            webgl_chan: self.webgl_chan.clone(),
+            webvr_chan: self.webvr_chan.clone(),
         });
 
         let pipeline = match result {
@@ -1123,10 +1123,6 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             FromScriptMsg::CreateCanvasPaintThread(size, sender) => {
                 debug!("constellation got create-canvas-paint-thread message");
                 self.handle_create_canvas_paint_thread_msg(&size, sender)
-            }
-            FromScriptMsg::CreateWebGLContext(size, attributes, sender) => {
-                debug!("constellation got create-WebGL-paint-thread message");
-                self.handle_create_webgl_context_msg(&size, attributes, sender)
             }
             FromScriptMsg::NodeStatus(message) => {
                 debug!("constellation got NodeStatus message");
@@ -2084,14 +2080,6 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
         if let Err(e) = response_sender.send(sender) {
             warn!("Create canvas paint thread response failed ({})", e);
         }
-    }
-
-    fn handle_create_webgl_context_msg(
-            &self,
-            size: &Size2D<i32>,
-            attributes: GLContextAttributes,
-            response_sender: IpcSender<Result<WebGLContextData, String>>) {
-        self.webgl_chan.send(WebGLMsg::CreateContext(*size, attributes, response_sender)).unwrap();
     }
 
     fn handle_webdriver_msg(&mut self, msg: WebDriverCommandMsg) {

@@ -32,8 +32,8 @@
 use app_units::Au;
 use canvas_traits::canvas::{CanvasGradientStop, LinearGradientStyle, RadialGradientStyle};
 use canvas_traits::canvas::{CompositionOrBlending, LineCapStyle, LineJoinStyle, RepetitionStyle};
-use canvas_traits::webgl::{WebGLBufferId, WebGLError, WebGLFramebufferId, WebGLMsgSender, WebGLProgramId};
-use canvas_traits::webgl::{WebGLRenderbufferId, WebGLShaderId, WebGLTextureId, WebGLVertexArrayId};
+use canvas_traits::webgl::{WebGLBufferId, WebGLError, WebGLFramebufferId, WebGLMsgSender, WebGLProgramId, WebGLMsg};
+use canvas_traits::webgl::{WebGLRenderbufferId, WebGLSender, WebGLShaderId, WebGLTextureId, WebGLVertexArrayId};
 use cssparser::RGBA;
 use devtools_traits::{CSSError, TimelineMarkerType, WorkerId};
 use dom::abstractworker::SharedRt;
@@ -593,6 +593,12 @@ unsafe impl JSTraceable for RwLock<SharedRt> {
 }
 
 unsafe impl JSTraceable for StyleLocked<MediaList> {
+    unsafe fn trace(&self, _trc: *mut JSTracer) {
+        // Do nothing.
+    }
+}
+
+unsafe impl JSTraceable for WebGLSender<WebGLMsg> {
     unsafe fn trace(&self, _trc: *mut JSTracer) {
         // Do nothing.
     }

@@ -32,7 +32,6 @@ use dom::vrstageparameters::VRStageParameters;
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use dom_struct::dom_struct;
 use ipc_channel::ipc::{self, IpcSender};
-use ipc_channel::ipc::{IpcSender, IpcReceiver};
 use js::jsapi::JSContext;
 use script_runtime::CommonScriptMsg;
 use script_runtime::ScriptThreadEventCategory::WebVREvent;
@@ -69,7 +68,7 @@ pub struct VRDisplay {
     // Compositor VRFrameData synchonization
     frame_data_status: Cell<VRFrameDataStatus>,
     #[ignore_heap_size_of = "channels are hard"]
-    frame_data_receiver: DOMRefCell<Option<WebGLReceiver<Result<Vec<u8>, ()>>>>,
+    frame_data_receiver: DOMRefCell<Option<WebVRFrameDataReceiver>>,
     running_display_raf: Cell<bool>,
     paused: Cell<bool>,
     stopped_on_pause: Cell<bool>,
@@ -87,6 +86,10 @@ enum VRFrameDataStatus {
 }
 
 unsafe_no_jsmanaged_fields!(VRFrameDataStatus);
+
+struct WebVRFrameDataReceiver(WebGLReceiver<Result<Vec<u8>, ()>>);
+
+unsafe_no_jsmanaged_fields!(WebVRFrameDataReceiver);
 
 impl VRDisplay {
     fn new_inherited(global: &GlobalScope, display: WebVRDisplayData) -> VRDisplay {
@@ -471,7 +474,7 @@ impl VRDisplay {
     fn init_present(&self) {
         self.presenting.set(true);
         let (sync_sender, sync_receiver) = webgl_channel().unwrap();
-        *self.frame_data_receiver.borrow_mut() = Some(sync_receiver);
+        *self.frame_data_receiver.borrow_mut() = Some(WebVRFrameDataReceiver(sync_receiver));
 
         let display_id = self.display.borrow().display_id;
         let api_sender = self.layer_ctx.get().unwrap().webgl_sender();
@@ -539,7 +542,7 @@ impl VRDisplay {
 
     fn sync_frame_data(&self) {
         let status = if let Some(receiver) = self.frame_data_receiver.borrow().as_ref() {
-            match receiver.recv().unwrap() {
+            match receiver.0.recv().unwrap() {
                 Ok(bytes) => {
                     *self.frame_data.borrow_mut() = WebVRFrameData::from_bytes(&bytes[..]);
                     VRFrameDataStatus::Synced

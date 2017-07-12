@@ -79,9 +79,6 @@ pub enum ScriptMsg {
     /// Requests that a new 2D canvas thread be created. (This is done in the constellation because
     /// 2D canvases may use the GPU and we don't want to give untrusted content access to the GPU.)
     CreateCanvasPaintThread(Size2D<i32>, IpcSender<IpcSender<CanvasMsg>>),
-    /// Requests that a new WebGL thread be created. (This is done in the constellation because
-    /// WebGL uses the GPU and we don't want to give untrusted content access to the GPU.)
-    CreateWebGLContext(Size2D<i32>, GLContextAttributes, IpcSender<Result<WebGLContextData, String>>),
     /// Notifies the constellation that this frame has received focus.
     Focus(PipelineId),
     /// Forward an event that was sent to the parent window.

@@ -5,7 +5,7 @@
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use canvas_traits::canvas::{byte_swap, multiply_u8_pixel};
 use canvas_traits::webgl::{webgl_channel, WebGLCommand, WebGLError, WebGLFramebufferBindingRequest};
-use canvas_traits::webgl::{WebGLMsgSender, WebGLParameter, WebVRCommand};
+use canvas_traits::webgl::{WebGLMsg, WebGLMsgSender, WebGLParameter, WebVRCommand};
 use canvas_traits::webgl::WebGLError::*;
 use core::cell::Ref;
 use core::iter::FromIterator;
@@ -22,7 +22,6 @@ use dom::bindings::js::{JS, LayoutJS, MutNullableJS, Root};
 use dom::bindings::reflector::{DomObject, Reflector, reflect_dom_object};
 use dom::bindings::str::DOMString;
 use dom::event::{Event, EventBubbles, EventCancelable};
-use dom::globalscope::GlobalScope;
 use dom::htmlcanvaselement::HTMLCanvasElement;
 use dom::htmlcanvaselement::utils as canvas_utils;
 use dom::node::{Node, NodeDamage, window_from_node};
@@ -45,7 +44,6 @@ use dom::window::Window;
 use dom_struct::dom_struct;
 use euclid::Size2D;
 use half::f16;
-use ipc_channel::ipc;
 use js::conversions::ConversionBehavior;
 use js::jsapi::{JSContext, JSObject, Type, Rooted};
 use js::jsval::{BooleanValue, DoubleValue, Int32Value, JSVal, NullValue, UndefinedValue};
@@ -54,7 +52,6 @@ use net_traits::image::base::PixelFormat;
 use net_traits::image_cache::ImageResponse;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use script_layout_interface::HTMLCanvasDataSource;
-use script_traits::ScriptMsg as ConstellationMsg;
 use servo_config::prefs::PREFS;
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -173,10 +170,10 @@ impl WebGLRenderingContext {
             return Err("WebGL context creation error forced by pref `webgl.testing.context_creation_error`".into());
         }
 
-        let (sender, receiver) = ipc::channel().unwrap();
-        let constellation_chan = window.upcast::<GlobalScope>().constellation_chan();
-        constellation_chan.send(ConstellationMsg::CreateWebGLContext(size, attrs, sender))
-                          .unwrap();
+        let (sender, receiver) = webgl_channel().unwrap();
+        let webgl_chan = window.webgl_chan();
+        webgl_chan.send(WebGLMsg::CreateContext(size, attrs, sender))
+                  .unwrap();
         let result = receiver.recv().unwrap();
 
         result.map(|ctx_data| {
