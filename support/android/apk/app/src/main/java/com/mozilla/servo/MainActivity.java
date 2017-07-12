@@ -11,9 +11,11 @@ import android.os.Handler;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.util.Log;
+import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.URLUtil;
+import android.widget.FrameLayout;
 
 import com.mozilla.servo.BuildConfig;
 
@@ -44,6 +46,8 @@ public class MainActivity extends android.app.NativeActivity {
         Log.i(LOGTAG, "Loading the NativeActivity");
 
         // Libaries should be loaded in reverse dependency order
+        System.loadLibrary("gvr");
+        System.loadLibrary("gvr_audio");
         System.loadLibrary("c++_shared");
         System.loadLibrary("servo");
     }
@@ -56,8 +60,11 @@ public class MainActivity extends android.app.NativeActivity {
             throw new RuntimeException(e);
         }
 
+        // Local urls
+        //String url = getAppDataDir() + "/rollercoaster/index.html";
+        //set_url(url);
         final Intent intent = getIntent();
-        if (intent != null && intent.getAction().equals(Intent.ACTION_VIEW)) {
+        if (intent != null && intent.getAction() != null && intent.getAction().equals(Intent.ACTION_VIEW)) {
             final String url = intent.getDataString();
             if (url != null && URLUtil.isValidUrl(url)) {
                 Log.d(LOGTAG, "Received url "+url);
@@ -69,16 +76,28 @@ public class MainActivity extends android.app.NativeActivity {
         boolean keepScreenOn = preferences.optBoolean("shell.keep_screen_on.enabled", false);
         mFullScreen = !preferences.optBoolean("shell.native-titlebar.enabled", false);
         String orientation = preferences.optString("shell.native-orientation", "both");
+        mFullScreen = true;
+        keepScreenOn = true;
+        orientation = "landscape";
 
         // Handle orientation preference
-        if (orientation.equalsIgnoreCase("portrait")) {
+        /*if (orientation.equalsIgnoreCase("portrait")) {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         }
         else if (orientation.equalsIgnoreCase("landscape")) {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        }
+        }*/
 
         super.onCreate(savedInstanceState);
+        getWindow().takeSurface(null);
+
+        FrameLayout layout = new FrameLayout(this);
+        layout.setLayoutParams(new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        SurfaceView nativeSurface = new SurfaceView(this);
+        nativeSurface.getHolder().addCallback(this);
+        layout.addView(nativeSurface, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(layout);
 
         // Handle keep screen on preference
         if (keepScreenOn) {
