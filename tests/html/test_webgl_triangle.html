@@ -131,6 +131,14 @@ void main() {
       // Draw
       gl.drawArrays(gl.TRIANGLES, 0, 3);
 
+      var mortimer = performance.now();
+      for (var i = 0; i < 30; ++i) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.clearColor(1.0, 0.0, 0.0, 1.0);
+      }
+      var duration = performance.now() - mortimer;
+      console.log("Overhead: " + duration);
+
       /*var n = 512;
       var pixels = new Uint8Array(n * n * 4);
       gl.readPixels(0, 0, n, n, gl.RGBA, gl.UNSIGNED_BYTE, pixels);

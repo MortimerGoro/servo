@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use bluetooth_traits::BluetoothRequest;
-use canvas_traits::webgl::{WebGLMsg, WebGLSender};
+use canvas_traits::webgl::WebGLPipeline;
 use compositing::CompositionPipeline;
 use compositing::CompositorProxy;
 use compositing::compositor_thread::Msg as CompositorMsg;
@@ -170,8 +170,8 @@ pub struct InitialPipelineState {
     /// Whether this pipeline is considered private.
     pub is_private: bool,
 
-    /// A channel to the webvr thread.
-    pub webgl_chan: WebGLSender<WebGLMsg>,
+    /// A channel to the webgl thread.
+    pub webgl_chan: WebGLPipeline,
 
     /// A channel to the webvr thread.
     pub webvr_chan: Option<IpcSender<WebVRMsg>>,
@@ -472,7 +472,7 @@ pub struct UnprivilegedPipelineContent {
     script_content_process_shutdown_chan: IpcSender<()>,
     script_content_process_shutdown_port: IpcReceiver<()>,
     webrender_api_sender: webrender_traits::RenderApiSender,
-    webgl_chan: WebGLSender<WebGLMsg>,
+    webgl_chan: WebGLPipeline,
     webvr_chan: Option<IpcSender<WebVRMsg>>,
 }
 

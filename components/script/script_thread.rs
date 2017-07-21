@@ -18,7 +18,7 @@
 //! loop.
 
 use bluetooth_traits::BluetoothRequest;
-use canvas_traits::webgl::{WebGLMsg, WebGLSender};
+use canvas_traits::webgl::WebGLPipeline;
 use devtools;
 use devtools_traits::{DevtoolScriptControlMsg, DevtoolsPageInfo};
 use devtools_traits::{ScriptToDevtoolsControlMsg, WorkerId};
@@ -496,7 +496,7 @@ pub struct ScriptThread {
     mutation_observers: DOMRefCell<Vec<JS<MutationObserver>>>,
 
     /// A handle to the webgl thread
-    webgl_chan: WebGLSender<WebGLMsg>,
+    webgl_chan: WebGLPipeline,
 
     /// A handle to the webvr thread, if available
     webvr_chan: Option<IpcSender<WebVRMsg>>,
@@ -1926,7 +1926,7 @@ impl ScriptThread {
                                  incomplete.parent_info,
                                  incomplete.window_size,
                                  incomplete.origin.clone(),
-                                 self.webgl_chan.clone(),
+                                 self.webgl_chan.channel(),
                                  self.webvr_chan.clone());
 
         // Initialize the browsing context for the window.

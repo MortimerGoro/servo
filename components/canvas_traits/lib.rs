@@ -20,3 +20,6 @@ extern crate webrender_traits;
 
 pub mod canvas;
 pub mod webgl;
+mod webgl_channel;
+
+

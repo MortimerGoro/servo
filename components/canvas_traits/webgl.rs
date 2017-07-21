@@ -8,78 +8,26 @@ use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::fmt;
 use webrender_traits;
 
-#[cfg(feature = "ipc")]
-mod channel {
-    use ipc_channel;
-    use serde::{Deserialize, Serialize};
-    use std::io;
+/// Sender type used in WebGLCommands
+pub use ::webgl_channel::WebGLSender;
+/// Receiver type used in WebGLCommands
+pub use ::webgl_channel::WebGLReceiver;
+/// Result type for recv() calls in in WebGLCommands
+pub use ::webgl_channel::WebGLSendResult;
+/// Helper function that creates a WebGL channel (WebGLSender, WebGLReceiver) to be used in WebGLCommands
+pub use ::webgl_channel::webgl_channel;
+/// Entry point type used in a Script Pipeline to create a WebGLChan.
+pub use ::webgl_channel::WebGLPipeline;
+/// Entry point channel type used for sending WebGLMsg messages to the WebGL renderer
+pub use ::webgl_channel::WebGLChan;
 
-    pub type WebGLSender<T> = ipc_channel::ipc::IpcSender<T>;
-    pub type WebGLReceiver<T> = ipc_channel::ipc::IpcReceiver<T>;
-    pub type WebGLSendResult = Result<(), ipc_channel::Error>;
+// Traits required for sync mode
+#[cfg(feature = "webgl_sync")]
+pub use ::webgl_channel::WebGLSyncCall;
+#[cfg(feature = "webgl_sync")]
+pub use ::webgl_channel::WebGLSyncPipeline;
 
-    pub fn webgl_channel<T: Serialize + for<'de> Deserialize<'de>>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), io::Error> {
-        ipc_channel::ipc::channel()
-    }
-}
-
-#[cfg(not(feature = "ipc"))]
-mod channel {
-    use serde::{Deserialize, Serialize};
-    use serde::{Deserializer, Serializer};
-    use std::sync::mpsc;
-
-    #[derive(Clone)]
-    pub struct WebGLSender<T>(mpsc::Sender<T>);
-    pub struct WebGLReceiver<T>(mpsc::Receiver<T>);
-    pub type WebGLSendResult = Result<(), mpsc::SendError<super::WebGLMsg>>;
-
-    impl<T> WebGLSender<T> {
-        #[inline]
-        pub fn send(&self, data: T) -> Result<(), mpsc::SendError<T>> {
-            self.0.send(data)
-        }
-    }
-
-    impl<T> WebGLReceiver<T> {
-        #[inline]
-        pub fn recv(&self) -> Result<T, mpsc::RecvError> {
-            self.0.recv()
-        }
-    }
-
-    pub fn webgl_channel<T>() -> Result<(WebGLSender<T>, WebGLReceiver<T>), ()> {
-        let (sender, receiver) = mpsc::channel();
-        Ok((WebGLSender(sender), WebGLReceiver(receiver)))
-    }
-
-    macro_rules! unreachable_serializable {
-        ($name:ident) => {
-            impl<T> Serialize for $name<T> {
-                fn serialize<S: Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
-                    unreachable!();
-                }
-            }
-
-            impl<'a, T> Deserialize<'a> for $name<T> {
-                fn deserialize<D>(_: D) -> Result<$name<T>, D::Error>
-                                where D: Deserializer<'a> {
-                    unreachable!();
-                }
-            }
-        };
-    }
-
-    unreachable_serializable!(WebGLSender);
-    unreachable_serializable!(WebGLReceiver);
-}
-
-
-pub use self::channel::WebGLSender;
-pub use self::channel::WebGLReceiver;
-pub use self::channel::WebGLSendResult;
-pub use self::channel::webgl_channel;
-
+/// Contains the WebGLCommand sender and information about a WebGLContext
 #[derive(Clone, Deserialize, Serialize)]
 pub struct WebGLContextData {
     pub sender: WebGLMsgSender,
@@ -87,6 +35,7 @@ pub struct WebGLContextData {
     pub image_key: webrender_traits::ImageKey,
 }
 
+/// WebGL Message API
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLMsg {
     CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLContextData), String>>),
@@ -100,15 +49,16 @@ pub enum WebGLMsg {
     Exit,
 }
 
+/// Helper struct to send WebGLCommands to a specific WebGLContext
 #[derive(Clone, Deserialize, HeapSizeOf, Serialize)]
 pub struct WebGLMsgSender {
     ctx_id: WebGLContextId,
     #[ignore_heap_size_of = "channels are hard"]
-    sender: WebGLSender<WebGLMsg>,
+    sender: WebGLChan,
 }
 
 impl WebGLMsgSender {
-    pub fn new(id: WebGLContextId, sender: WebGLSender<WebGLMsg>) -> Self {
+    pub fn new(id: WebGLContextId, sender: WebGLChan) -> Self {
         WebGLMsgSender {
             ctx_id : id,
             sender: sender,
@@ -144,6 +94,7 @@ impl WebGLMsgSender {
     }
 }
 
+/// WebGL Commands for a specific WebGLContext
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLCommand {
     GetContextAttributes(WebGLSender<GLContextAttributes>),
@@ -525,3 +476,5 @@ impl fmt::Debug for WebGLCommand {
         write!(f, "CanvasWebGLMsg::{}(..)", name)
     }
 }
+
+

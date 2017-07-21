@@ -25,7 +25,6 @@ extern crate ipc_channel;
 extern crate libc;
 extern crate msg;
 extern crate net_traits;
-extern crate offscreen_gl_context;
 extern crate profile_traits;
 extern crate rustc_serialize;
 #[macro_use] extern crate serde;
@@ -41,7 +40,7 @@ pub mod webdriver_msg;
 
 use app_units::Au;
 use bluetooth_traits::BluetoothRequest;
-use canvas_traits::webgl::{WebGLMsg, WebGLSender};
+use canvas_traits::webgl::WebGLPipeline;
 use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, WorkerId};
 use euclid::{Size2D, Length, Point2D, Vector2D, Rect, ScaleFactor, TypedSize2D};
 use gfx_traits::Epoch;
@@ -525,7 +524,7 @@ pub struct InitialScriptState {
     /// A ping will be sent on this channel once the script thread shuts down.
     pub content_process_shutdown_chan: IpcSender<()>,
     /// A channel to the webvr thread, if available.
-    pub webgl_chan: WebGLSender<WebGLMsg>,
+    pub webgl_chan: WebGLPipeline,
     /// A channel to the webvr thread, if available.
     pub webvr_chan: Option<IpcSender<WebVRMsg>>
 }

@@ -71,7 +71,7 @@ use browsingcontext::{BrowsingContext, SessionHistoryChange, SessionHistoryEntry
 use browsingcontext::{FullyActiveBrowsingContextsIterator, AllBrowsingContextsIterator};
 use canvas::canvas_paint_thread::CanvasPaintThread;
 use canvas_traits::canvas::CanvasMsg;
-use canvas_traits::webgl::{WebGLMsg, WebGLSender};
+use canvas::webgl_thread::WebGLThreads;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use compositing::SendableFrameTree;
 use compositing::compositor_thread::CompositorProxy;
@@ -291,8 +291,8 @@ pub struct Constellation<Message, LTF, STF> {
     /// Phantom data that keeps the Rust type system happy.
     phantom: PhantomData<(Message, LTF, STF)>,
 
-    /// An IPC channel for the constellation to send messages to the WebGL Renderer Thread.
-    webgl_chan: WebGLSender<WebGLMsg>,
+    /// Channels for the constellation to send messages to the WebGL Renderer Thread.
+    webgl_threads: WebGLThreads,
 
     /// A channel through which messages can be sent to the webvr thread.
     webvr_chan: Option<IpcSender<WebVRMsg>>,
@@ -328,7 +328,7 @@ pub struct InitialConstellationState {
     pub mem_profiler_chan: mem::ProfilerChan,
 
     /// A channel to the webgl thread.
-    pub webgl_chan: WebGLSender<WebGLMsg>,
+    pub webgl_threads: WebGLThreads,
 
         /// A channel to the webgl thread.
     pub webvr_chan: Option<IpcSender<WebVRMsg>>,
@@ -579,7 +579,7 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
                     info!("Using seed {} for random pipeline closure.", seed);
                     (rng, prob)
                 }),
-                webgl_chan: state.webgl_chan,
+                webgl_threads: state.webgl_threads,
                 webvr_chan: state.webvr_chan,
             };
 
@@ -695,7 +695,7 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             prev_visibility: prev_visibility,
             webrender_api_sender: self.webrender_api_sender.clone(),
             is_private: is_private,
-            webgl_chan: self.webgl_chan.clone(),
+            webgl_chan: self.webgl_threads.pipeline(),
             webvr_chan: self.webvr_chan.clone(),
         });
 
@@ -1331,7 +1331,7 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
         }
 
         debug!("Exiting WebGL thread.");
-        if let Err(e) = self.webgl_chan.send(WebGLMsg::Exit) {
+        if let Err(e) = self.webgl_threads.exit() {
             warn!("Exit WebGL Thread failed ({})", e);
         }
 

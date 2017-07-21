@@ -69,7 +69,7 @@ fn webdriver(_port: u16, _constellation: Sender<ConstellationMsg>) { }
 use bluetooth::BluetoothThreadFactory;
 use bluetooth_traits::BluetoothRequest;
 use canvas::gl_context::GLContextFactory;
-use canvas::webgl_thread::{WebGLExternalImageHandler, WebGLThread};
+use canvas::webgl_thread::WebGLThreads;
 use compositing::IOCompositor;
 use compositing::compositor_thread::{self, CompositorProxy, CompositorReceiver, InitialCompositorState};
 use compositing::windowing::WindowEvent;
@@ -329,12 +329,11 @@ fn create_constellation(user_agent: Cow<'static, str>,
     };
 
     // Initialize WebGL Thread
-    let webgl_chan = WebGLThread::start(gl_factory,
-                                        webrender_api_sender.clone(),
-                                        webvr_compositor.map(|c| c as Box<_>));
+    let (webgl_threads, image_handler) = WebGLThreads::new(gl_factory,
+                                                           webrender_api_sender.clone(),
+                                                           webvr_compositor.map(|c| c as Box<_>));
     // Set webrender external image handler for WebGL textures
-    let external_handler = WebGLExternalImageHandler::new(webgl_chan.clone());
-    webrender.set_external_image_handler(Box::new(external_handler));
+    webrender.set_external_image_handler(image_handler);
 
     let initial_state = InitialConstellationState {
         compositor_proxy: compositor_proxy,
@@ -346,7 +345,7 @@ fn create_constellation(user_agent: Cow<'static, str>,
         private_resource_threads: private_resource_threads,
         time_profiler_chan: time_profiler_chan,
         mem_profiler_chan: mem_profiler_chan,
-        webgl_chan: webgl_chan,
+        webgl_threads: webgl_threads,
         webvr_chan: webvr_chan,
         supports_clipboard: supports_clipboard,
         webrender_api_sender: webrender_api_sender,

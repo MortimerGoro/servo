@@ -10,8 +10,9 @@ name = "canvas_traits"
 path = "lib.rs"
 
 [features]
-#default = ["ipc"]
-ipc = []
+default = []
+webgl_ipc = []
+webgl_sync = []
 
 [dependencies]
 cssparser = "0.16.1"

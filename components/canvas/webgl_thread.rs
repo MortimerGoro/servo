@@ -8,92 +8,116 @@ use euclid::Size2D;
 use gleam::gl;
 use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLContextMethods};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
 use webrender;
 use webrender_traits;
 
-pub struct WebGLThread {
-    factory: GLContextFactory,
+// Entry point to get a WebGLThread for each pipeline
+pub use ::webgl_mode::WebGLThreads;
+
+pub struct WebGLThread<VR: WebVRRenderHandler, OB: WebGLThreadObserver> {
+    gl_factory: Arc<GLContextFactory>,
     webrender_api: webrender_traits::RenderApi,
     contexts: HashMap<WebGLContextId, GLContextWrapper>,
     cached_context_info: HashMap<WebGLContextId, (u32, Size2D<i32>, webrender_traits::ImageKey)>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     next_webgl_id: usize,
-    webvr_compositor: Option<Box<WebVRRenderHandler>>,
+    webvr_compositor: Option<VR>,
     // TODO dictionary
     sync: Option<gl::GLsync>,
+    observer: OB,
 }
 
-impl WebGLThread {
-    fn new(factory: GLContextFactory,
-           webrender_api_sender: webrender_traits::RenderApiSender,
-           webvr_compositor: Option<Box<WebVRRenderHandler>>) -> Self {
+impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, OB> {
+    pub fn new(gl_factory: Arc<GLContextFactory>,
+               webrender_api_sender: webrender_traits::RenderApiSender,
+               webvr_compositor: Option<VR>,
+               observer: OB) -> Self {
         WebGLThread {
-            factory: factory,
+            gl_factory: gl_factory,
             webrender_api: webrender_api_sender.create_api(),
             contexts: HashMap::new(),
             cached_context_info: HashMap::new(),
             current_bound_webgl_context_id: None,
             next_webgl_id: 0,
             webvr_compositor: webvr_compositor,
+            observer: observer,
             sync: None,
         }
     }
 
     /// Creates a new `WebGLThread` and returns a Sender to
     /// communicate with it.
-    pub fn start(webgl_factory: GLContextFactory,
+    #[cfg(not(feature = "webgl_sync"))]
+    pub fn start(gl_factory: Arc<GLContextFactory>,
                  webrender_api_sender: webrender_traits::RenderApiSender,
-                 webvr_compositor: Option<Box<WebVRRenderHandler>>)
+                 webvr_compositor: Option<VR>,
+                 observer: OB)
                  -> WebGLSender<WebGLMsg> {
         let (sender, receiver) = webgl_channel::<WebGLMsg>().unwrap();
         let result = sender.clone();
         thread::Builder::new().name("WebGLThread".to_owned()).spawn(move || {
-            let mut renderer = WebGLThread::new(webgl_factory, webrender_api_sender, webvr_compositor);
+            let mut renderer = WebGLThread::new(gl_factory,
+                                                webrender_api_sender,
+                                                webvr_compositor,
+                                                observer);
+            let webgl_chan = WebGLChan(sender);
             loop {
-                match receiver.recv().unwrap() {
-                    WebGLMsg::CreateContext(size, attributes, result_sender) => {
-                        let result = renderer.create_webgl_context(size, attributes);
-                        result_sender.send(result.map(|(id, limits, image_key)|
-                            WebGLContextData {
-                                sender: WebGLMsgSender::new(id, sender.clone()),
-                                limits: limits,
-                                image_key: image_key,
-                            }
-                        )).unwrap();
-                    },
-                    WebGLMsg::ResizeContext(ctx_id, size, sender) => {
-                        renderer.resize(ctx_id, size, sender);
-                    },
-                    WebGLMsg::RemoveContext(ctx_id) => {
-                        renderer.remove_context(ctx_id);
-                    },
-                    WebGLMsg::WebGLCommand(ctx_id, command) => {
-                        renderer.handle_webgl_command(ctx_id, command);
-                    },
-                    WebGLMsg::WebVRCommand(ctx_id, command) => {
-                        renderer.handle_webvr_command(ctx_id, command);
-                    },
-                    WebGLMsg::Lock(ctx_id, sender) => {
-                        renderer.handle_lock(ctx_id, sender);
-                    },
-                    WebGLMsg::Unlock(ctx_id) => {
-                        renderer.handle_unlock(ctx_id);
-                    },
-                    WebGLMsg::Update(ctx_id, sender) => {
-                        let info = renderer.cached_context_info[&ctx_id];
-                        Self::update_webrender_image(&renderer.webrender_api, info.1, info.2, ctx_id);
-                        sender.send(()).unwrap();
-                    },
-                    WebGLMsg::Exit => {
-                        return;
-                    },
-                }
+                let msg = receiver.recv().unwrap();
+                let exit = renderer.handle_msg(msg, &webgl_chan);
+                if exit {
+                    return;
+                }            
             }
         }).expect("Thread spawning failed");
 
         result
+    }
+
+    #[inline]
+    pub fn handle_msg(&mut self, msg: WebGLMsg, webgl_chan: &WebGLChan) -> bool {
+        match msg {
+            WebGLMsg::CreateContext(size, attributes, result_sender) => {
+                let result = self.create_webgl_context(size, attributes);
+                result_sender.send(result.map(|(id, limits, image_key)|
+                    WebGLContextData {
+                        sender: WebGLMsgSender::new(id, webgl_chan.clone()),
+                        limits: limits,
+                        image_key: image_key,
+                    }
+                )).unwrap();
+            },
+            WebGLMsg::ResizeContext(ctx_id, size, sender) => {
+                self.resize(ctx_id, size, sender);
+            },
+            WebGLMsg::RemoveContext(ctx_id) => {
+                self.remove_context(ctx_id);
+            },
+            WebGLMsg::WebGLCommand(ctx_id, command) => {
+                self.handle_webgl_command(ctx_id, command);
+            },
+            WebGLMsg::WebVRCommand(ctx_id, command) => {
+                self.handle_webvr_command(ctx_id, command);
+            },
+            WebGLMsg::Lock(ctx_id, sender) => {
+                self.handle_lock(ctx_id, sender);
+            },
+            WebGLMsg::Unlock(ctx_id) => {
+                self.handle_unlock(ctx_id);
+            },
+            WebGLMsg::Update(ctx_id, sender) => {
+                let info = self.cached_context_info[&ctx_id];
+                Self::update_webrender_image(&self.webrender_api, info.1, info.2, ctx_id);
+                sender.send(()).unwrap();
+            },
+            WebGLMsg::Exit => {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn handle_webgl_command(&mut self, context_id: WebGLContextId, command: WebGLCommand) {
@@ -149,7 +173,7 @@ impl WebGLThread {
         // TODO
         let dispatcher = None;
 
-        let result = self.factory.new_context(size, attributes, dispatcher);
+        let result = self.gl_factory.new_context(size, attributes, dispatcher);
         // Creating a new GLContext may make the current bound context_id dirty.
         // Clear it to ensure that  make_current() is called in subsequent commands.
         self.current_bound_webgl_context_id = None;
@@ -162,6 +186,8 @@ impl WebGLThread {
                 self.contexts.insert(id, ctx);
                 let image_key = Self::create_webrender_image(&self.webrender_api, real_size, id);
                 self.cached_context_info.insert(id, (texture_id, real_size, image_key));
+
+                self.observer.on_context_create(id, texture_id, real_size);
 
                 Ok((id, limits, image_key))
             },
@@ -184,6 +210,7 @@ impl WebGLThread {
             Ok(_) => {
                 // Update webgl texture size. Texture id may change too.
                 let (real_size, texture_id, _) = ctx.get_info();
+                self.observer.on_context_resize(context_id, texture_id, real_size);
                 // TODO remove old image keys
                 let image_key = Self::create_webrender_image(&self.webrender_api, real_size, context_id);
                 self.cached_context_info.insert(context_id, (texture_id, real_size, image_key));
@@ -196,7 +223,9 @@ impl WebGLThread {
     }
 
     fn remove_context(&mut self, context_id: WebGLContextId) {
-        self.contexts.remove(&context_id);
+        if self.contexts.remove(&context_id).is_some() {
+            self.observer.on_context_delete(context_id);
+        }
         // Removing a GLContext may make the current bound context_id dirty.
         self.current_bound_webgl_context_id = None;
     }
@@ -256,22 +285,34 @@ impl WebGLThread {
 }
 
 
-// External Image Handler
-pub struct WebGLExternalImageHandler {
-    webgl_chan: WebGLSender<WebGLMsg>,
-    lock_chan: (WebGLSender<(u32, Size2D<i32>)>, WebGLReceiver<(u32, Size2D<i32>)>),
+/// Trait used to observe events in a WebGL Thread.
+/// Used in webrender::ExternalImageHandler when multiple WebGL threads are used.
+pub trait WebGLThreadObserver: Send + 'static {
+    fn on_context_create(&mut self, ctx_id: WebGLContextId, texture_id: u32, size: Size2D<i32>);
+    fn on_context_resize(&mut self, ctx_id: WebGLContextId, texture_id: u32, size: Size2D<i32>);
+    fn on_context_delete(&mut self, ctx_id: WebGLContextId);
 }
 
-impl WebGLExternalImageHandler {
-    pub fn new(webgl_chan: WebGLSender<WebGLMsg>) -> Self {
+/// Trait used by the Generic WebRender External Image Handler implementation
+pub trait WebGLExternalImageApi {
+    fn lock(&mut self, ctx_id: WebGLContextId) -> (u32, Size2D<i32>);
+    fn unlock(&mut self, ctx_id: WebGLContextId);
+}
+
+/// WebRender External Image Handler implementation
+pub struct WebGLExternalImageHandler<T: WebGLExternalImageApi> {
+    handler: T,
+}
+
+impl<T: WebGLExternalImageApi> WebGLExternalImageHandler<T> {
+    pub fn new(handler: T) -> Self {
         Self {
-            webgl_chan: webgl_chan,
-            lock_chan: webgl_channel().unwrap(),
+            handler: handler
         }
     }
 }
 
-impl webrender::ExternalImageHandler for WebGLExternalImageHandler {
+impl<T: WebGLExternalImageApi> webrender::ExternalImageHandler for WebGLExternalImageHandler<T> {
     /// Lock the external image. Then, WR could start to read the image content.
     /// The WR client should not change the image content until the unlock()
     /// call.
@@ -279,8 +320,7 @@ impl webrender::ExternalImageHandler for WebGLExternalImageHandler {
             key: webrender_traits::ExternalImageId,
             _channel_index: u8)-> webrender::ExternalImage {
         let ctx_id = WebGLContextId(key.0 as _);
-        self.webgl_chan.send(WebGLMsg::Lock(ctx_id, self.lock_chan.0.clone())).unwrap();
-        let (texture_id, size) = self.lock_chan.1.recv().unwrap();
+        let (texture_id, size) = self.handler.lock(ctx_id);
 
         webrender::ExternalImage {
             u0: 0.0,
@@ -297,12 +337,11 @@ impl webrender::ExternalImageHandler for WebGLExternalImageHandler {
               key: webrender_traits::ExternalImageId,
               _channel_index: u8) {
         let ctx_id = WebGLContextId(key.0 as _);
-        self.webgl_chan.send(WebGLMsg::Unlock(ctx_id)).unwrap();
+        self.handler.unlock(ctx_id);
     }
 }
 
-// WebGL Commands Implementation
-
+/// WebGL Commands Implementation
 pub struct WebGLImpl;
 
 impl WebGLImpl {
@@ -542,9 +581,10 @@ impl WebGLImpl {
                 ctx.gl().bind_vertex_array(id.map_or(0, WebGLVertexArrayId::get)),
         }
 
-        // FIXME: Use debug_assertions once tests are run with them
-        //let error = ctx.gl().get_error();
-        //assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
+        if cfg!(debug_assertions) {
+            let error = ctx.gl().get_error();
+            assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
+        }
     }
 
     fn read_pixels(gl: &gl::Gl, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32,

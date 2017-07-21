@@ -150,8 +150,8 @@ interface CanvasUserInterface {
 [NoInterfaceObject]
 interface CanvasText {
   // text (see also the CanvasDrawingStyles interface)
-  //void fillText(DOMString text, unrestricted double x, unrestricted double y,
-  //              optional unrestricted double maxWidth);
+  void fillText(DOMString text, unrestricted double x, unrestricted double y,
+                optional unrestricted double maxWidth);
   //void strokeText(DOMString text, unrestricted double x, unrestricted double y,
   //                optional unrestricted double maxWidth);
   //TextMetrics measureText(DOMString text);

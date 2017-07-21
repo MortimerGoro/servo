@@ -493,7 +493,7 @@ impl VRDisplay {
         // in the Webrender thread are executed in parallel. This allows to get some JavaScript code executed ahead.
         // while the render thread is syncing the VRFrameData to be used for the current frame.
         // This thread runs until the user calls ExitPresent, the tab is closed or some unexpected error happened.
-        thread::Builder::new().name("WebVR_RAF".into()).spawn(move || {
+        /*thread::Builder::new().name("WebVR_RAF".into()).spawn(move || {
             let (raf_sender, raf_receiver) = mpsc::channel();
             let mut near = near_init;
             let mut far = far_init;
@@ -522,7 +522,7 @@ impl VRDisplay {
                     return;
                 }
             }
-        }).expect("Thread spawning failed");
+        }).expect("Thread spawning failed");*/
     }
 
     fn stop_present(&self) {

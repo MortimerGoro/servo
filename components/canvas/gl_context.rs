@@ -19,6 +19,11 @@ pub enum GLContextFactory {
     OSMesa(OSMesaContextHandle),
 }
 
+#[allow(unsafe_code)]
+unsafe impl Send for GLContextFactory {}
+#[allow(unsafe_code)]
+unsafe impl Sync for GLContextFactory {}
+
 impl GLContextFactory {
     pub fn current_native_handle() -> Option<GLContextFactory> {
         NativeGLContext::current_handle().map(GLContextFactory::Native)

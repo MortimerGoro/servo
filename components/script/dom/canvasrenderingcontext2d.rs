@@ -1123,6 +1123,10 @@ impl CanvasRenderingContext2DMethods for CanvasRenderingContext2D {
                                                                                     Vec::new()))))
     }
 
+    fn FillText(&self, text: DOMString, x: f64, y: f64, maxWidth: Option<f64>) {
+
+    }
+    
     // https://html.spec.whatwg.org/multipage/#dom-context-2d-createpattern
     fn CreatePattern(&self,
                      image: HTMLImageElementOrHTMLCanvasElementOrCanvasRenderingContext2D,

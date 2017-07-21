@@ -14,7 +14,7 @@
   "dom.testable_crash.enabled": false,
   "dom.testbinding.enabled": false,
   "dom.webvr.enabled": true,
-  "dom.webvr.event_polling_interval": 500,
+  "dom.webvr.event_polling_interval": 5000,
   "js.asmjs.enabled": true,
   "js.asyncstack.enabled": false,
   "js.baseline.enabled": true,

@@ -5,7 +5,7 @@
 use app_units::Au;
 use base64;
 use bluetooth_traits::BluetoothRequest;
-use canvas_traits::webgl::{WebGLMsg, WebGLSender};
+use canvas_traits::webgl::WebGLChan;
 use cssparser::{Parser, ParserInput};
 use devtools_traits::{ScriptToDevtoolsControlMsg, TimelineMarker, TimelineMarkerType};
 use dom::bindings::cell::DOMRefCell;
@@ -264,7 +264,7 @@ pub struct Window {
 
     /// A handle for communicating messages to the webvr thread, if available.
     #[ignore_heap_size_of = "channels are hard"]
-    webgl_chan: WebGLSender<WebGLMsg>,
+    webgl_chan: WebGLChan,
 
     /// A handle for communicating messages to the webvr thread, if available.
     #[ignore_heap_size_of = "channels are hard"]
@@ -377,7 +377,7 @@ impl Window {
         self.current_viewport.clone().get()
     }
 
-    pub fn webgl_chan(&self) -> WebGLSender<WebGLMsg> {
+    pub fn webgl_chan(&self) -> WebGLChan {
         self.webgl_chan.clone()
     }
 
@@ -1809,7 +1809,7 @@ impl Window {
                parent_info: Option<(PipelineId, FrameType)>,
                window_size: Option<WindowSizeData>,
                origin: MutableOrigin,
-               webgl_chan: WebGLSender<WebGLMsg>,
+               webgl_chan: WebGLChan,
                webvr_chan: Option<IpcSender<WebVRMsg>>)
                -> Root<Window> {
         let layout_rpc: Box<LayoutRPC + Send> = {
