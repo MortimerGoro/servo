@@ -9,6 +9,12 @@ publish = false
 name = "canvas"
 path = "lib.rs"
 
+[features]
+default = ["webgl_multiprocess"]
+#webgl_multiprocess = ["canvas_traits/webgl_ipc"]
+webgl_multiprocess = []
+webgl_sync = ["canvas_traits/webgl_sync"]
+
 [dependencies]
 azure = {git = "https://github.com/servo/rust-azure"}
 canvas_traits = {path = "../canvas_traits"}
@@ -19,5 +25,5 @@ ipc-channel = "0.8"
 log = "0.3.5"
 num-traits = "0.1.32"
 offscreen_gl_context = { version = "0.11", features = ["serde"] }
-servo_config = {path = "../config"}
+webrender = {git = "https://github.com/servo/webrender"}
 webrender_api = {git = "https://github.com/servo/webrender", features = ["ipc"]}

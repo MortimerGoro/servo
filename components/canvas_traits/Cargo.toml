@@ -9,11 +9,17 @@ publish = false
 name = "canvas_traits"
 path = "lib.rs"
 
+[features]
+default = []
+webgl_ipc = []
+webgl_sync = []
+
 [dependencies]
 cssparser = "0.18"
 euclid = "0.15"
 heapsize = "0.4"
 heapsize_derive = "0.1"
 ipc-channel = "0.8"
+offscreen_gl_context = { version = "0.11", features = ["serde"] }
 serde = "1.0"
 webrender_api = {git = "https://github.com/servo/webrender", features = ["ipc"]}
