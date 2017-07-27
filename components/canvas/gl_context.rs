@@ -33,7 +33,7 @@ impl GLContextFactory {
         OSMesaContext::current_handle().map(GLContextFactory::OSMesa)
     }
 
-    pub fn new_context(&self,
+    pub fn new_shared_context(&self,
                        size: Size2D<i32>,
                        attributes: GLContextAttributes,
                        dispatcher: Option<Box<GLContextDispatcher>>) -> Result<GLContextWrapper, &'static str> {
@@ -54,6 +54,31 @@ impl GLContextFactory {
                                                                                  gl::GlType::default(),
                                                                                  Some(handle),
                                                                                  dispatcher);
+                ctx.map(GLContextWrapper::OSMesa)
+            }
+        }
+    }
+
+    pub fn new_context(&self,
+                       size: Size2D<i32>,
+                       attributes: GLContextAttributes) -> Result<GLContextWrapper, &'static str> {
+        match *self {
+            GLContextFactory::Native(_) => {
+                let ctx = GLContext::<NativeGLContext>::new_shared_with_dispatcher(size,
+                                                                                   attributes,
+                                                                                   ColorAttachmentType::Texture,
+                                                                                   gl::GlType::default(),
+                                                                                   None,
+                                                                                   None);
+                ctx.map(GLContextWrapper::Native)
+            }
+            GLContextFactory::OSMesa(_) => {
+                let ctx = GLContext::<OSMesaContext>::new_shared_with_dispatcher(size.to_untyped(),
+                                                                                 attributes,
+                                                                                 ColorAttachmentType::Texture,
+                                                                                 gl::GlType::default(),
+                                                                                 None,
+                                                                                 None);
                 ctx.map(GLContextWrapper::OSMesa)
             }
         }
@@ -121,6 +146,17 @@ impl GLContextWrapper {
                 ctx.gl().flush();
                 ctx.gl().wait_sync(sync, 0, gl::TIMEOUT_IGNORED);
                 ctx.gl().delete_sync(sync);
+            }
+        }
+    }
+
+    pub fn gl(&self) -> &gl::Gl {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                ctx.gl()
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.gl()
             }
         }
     }

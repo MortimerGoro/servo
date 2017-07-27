@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use canvas_traits::canvas::CanvasImageData;
 use dom::bindings::callback::CallbackContainer;
 use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::PaintWorkletGlobalScopeBinding;

@@ -27,26 +27,34 @@ pub use ::webgl_channel::WebGLSyncCall;
 #[cfg(feature = "webgl_sync")]
 pub use ::webgl_channel::WebGLSyncPipeline;
 
-/// Contains the WebGLCommand sender and information about a WebGLContext
-#[derive(Clone, Deserialize, Serialize)]
-pub struct WebGLContextData {
-    pub sender: WebGLMsgSender,
-    pub limits: GLLimits,
-    pub image_key: webrender_api::ImageKey,
-}
-
 /// WebGL Message API
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebGLMsg {
-    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLContextData), String>>),
-    ResizeContext(WebGLContextId, Size2D<i32>, WebGLSender<Result<webrender_api::ImageKey, String>>),
+    CreateContext(Size2D<i32>, GLContextAttributes, WebGLSender<Result<(WebGLCreateContextResult), String>>),
+    ResizeContext(WebGLContextId, Size2D<i32>, WebGLSender<Result<(), String>>),
     RemoveContext(WebGLContextId),
     WebGLCommand(WebGLContextId, WebGLCommand),
     WebVRCommand(WebGLContextId, WebVRCommand),
     Lock(WebGLContextId, WebGLSender<(u32, Size2D<i32>)>),
     Unlock(WebGLContextId),
-    Update(WebGLContextId, WebGLSender<()>),
+    UpdateWebRenderImage(WebGLContextId, WebGLSender<webrender_api::ImageKey>),
     Exit,
+}
+
+/// Contains the WebGLCommand sender and information about a WebGLContext
+#[derive(Clone, Deserialize, Serialize)]
+pub struct WebGLCreateContextResult {
+    pub sender: WebGLMsgSender,
+    pub limits: GLLimits,
+    pub share_mode: WebGLContextShareMode,
+}
+
+#[derive(Clone, Copy, Deserialize, HeapSizeOf, Serialize)]
+pub enum WebGLContextShareMode {
+    /// Fast: a shared texture_id is used in WebRender.
+    SharedTexture,
+    /// Slow: glReadPixels is used to send pixels to WebRender each frame.
+    Readback,
 }
 
 /// Helper struct to send WebGLCommands to a specific WebGLContext
@@ -78,7 +86,7 @@ impl WebGLMsgSender {
     #[inline]
     pub fn send_resize(&self,
                        size: Size2D<i32>,
-                       sender: WebGLSender<Result<webrender_api::ImageKey, String>>)
+                       sender: WebGLSender<Result<(), String>>)
                        -> WebGLSendResult {
         self.sender.send(WebGLMsg::ResizeContext(self.ctx_id, size, sender))
     }
@@ -89,8 +97,8 @@ impl WebGLMsgSender {
     }
 
     #[inline]
-    pub fn send_update(&self, sender: WebGLSender<()>) -> WebGLSendResult {
-        self.sender.send(WebGLMsg::Update(self.ctx_id, sender))
+    pub fn send_update_wr_image(&self, sender: WebGLSender<webrender_api::ImageKey>) -> WebGLSendResult {
+        self.sender.send(WebGLMsg::UpdateWebRenderImage(self.ctx_id, sender))
     }
 }
 

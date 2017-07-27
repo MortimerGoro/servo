@@ -3,12 +3,14 @@
  his
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use canvas_traits::canvas::byte_swap;
 use canvas_traits::webgl::*;
 use euclid::Size2D;
 use gleam::gl;
 use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLContextMethods};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::mem;
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
 use webrender;
@@ -17,14 +19,15 @@ use webrender_api;
 // Entry point to get a WebGLThread for each pipeline
 pub use ::webgl_mode::WebGLThreads;
 
-pub struct WebGLThread<VR: WebVRRenderHandler, OB: WebGLThreadObserver> {
+pub struct WebGLThread<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> {
     gl_factory: Arc<GLContextFactory>,
     webrender_api: webrender_api::RenderApi,
     contexts: HashMap<WebGLContextId, GLContextWrapper>,
-    cached_context_info: HashMap<WebGLContextId, (u32, Size2D<i32>, webrender_api::ImageKey)>,
+    cached_context_info: HashMap<WebGLContextId, WebGLContextInfo>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     next_webgl_id: usize,
     webvr_compositor: Option<VR>,
+    old_images: Vec<webrender_api::ImageKey>,
     // TODO dictionary
     sync: Option<gl::GLsync>,
     observer: OB,
@@ -43,6 +46,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             current_bound_webgl_context_id: None,
             next_webgl_id: 0,
             webvr_compositor: webvr_compositor,
+            old_images: Vec::new(),
             observer: observer,
             sync: None,
         }
@@ -81,11 +85,11 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
         match msg {
             WebGLMsg::CreateContext(size, attributes, result_sender) => {
                 let result = self.create_webgl_context(size, attributes);
-                result_sender.send(result.map(|(id, limits, image_key)|
-                    WebGLContextData {
+                result_sender.send(result.map(|(id, limits, share_mode)|
+                    WebGLCreateContextResult {
                         sender: WebGLMsgSender::new(id, webgl_chan.clone()),
                         limits: limits,
-                        image_key: image_key,
+                        share_mode: share_mode,
                     }
                 )).unwrap();
             },
@@ -107,10 +111,8 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             WebGLMsg::Unlock(ctx_id) => {
                 self.handle_unlock(ctx_id);
             },
-            WebGLMsg::Update(ctx_id, sender) => {
-                let info = self.cached_context_info[&ctx_id];
-                Self::update_webrender_image(&self.webrender_api, info.1, info.2, ctx_id);
-                sender.send(()).unwrap();
+            WebGLMsg::UpdateWebRenderImage(ctx_id, sender) => {
+                self.handle_update_wr_image(ctx_id, sender);
             },
             WebGLMsg::Exit => {
                 return true;
@@ -141,7 +143,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             },
             _ => None
         };
-        self.webvr_compositor.as_mut().unwrap().handle(command, texture.map(|d| (d.0, d.1)));
+        self.webvr_compositor.as_mut().unwrap().handle(command, texture.map(|t| (t.texture_id, t.size)));
     }
 
     fn handle_lock(&mut self, context_id: WebGLContextId, sender: WebGLSender<(u32, Size2D<i32>)>) {
@@ -150,9 +152,9 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             ctx.make_current();
             self.current_bound_webgl_context_id = Some(context_id);
         }
-        let info = self.cached_context_info[&context_id];
+        let info = &self.cached_context_info[&context_id];
         self.sync = Some(ctx.lock());
-        sender.send((info.0, info.1)).unwrap();
+        sender.send((info.texture_id, info.size)).unwrap();
     }
 
     fn handle_unlock(&mut self, context_id: WebGLContextId) {
@@ -169,27 +171,41 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
     fn create_webgl_context(&mut self,
                             size: Size2D<i32>,
                             attributes: GLContextAttributes)
-                            -> Result<(WebGLContextId, GLLimits, webrender_api::ImageKey), String> {
+                            -> Result<(WebGLContextId, GLLimits, WebGLContextShareMode), String> {
         // TODO
         let dispatcher = None;
 
-        let result = self.gl_factory.new_context(size, attributes, dispatcher);
+        // First try to create a shared context for best performance.
+        // Fallback to readback mode if the shared context creation fails.
+        let result = self.gl_factory.new_shared_context(size, attributes, dispatcher)
+                                    .map(|r| (r, WebGLContextShareMode::SharedTexture))
+                                    .or_else(|_| {
+                                        let ctx = self.gl_factory.new_context(size, attributes);
+                                        ctx.map(|r| (r, WebGLContextShareMode::Readback))
+                                    });
+
         // Creating a new GLContext may make the current bound context_id dirty.
         // Clear it to ensure that  make_current() is called in subsequent commands.
         self.current_bound_webgl_context_id = None;
 
         match result {
-            Ok(ctx) => {
+            Ok((ctx, share_mode)) => {
                 let id = WebGLContextId(self.next_webgl_id);
                 let (real_size, texture_id, limits) = ctx.get_info();
                 self.next_webgl_id += 1;
                 self.contexts.insert(id, ctx);
-                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, id);
-                self.cached_context_info.insert(id, (texture_id, real_size, image_key));
+                self.cached_context_info.insert(id, WebGLContextInfo {
+                    texture_id: texture_id,
+                    size: real_size,
+                    image_key: None,
+                    share_mode: share_mode,
+                    old_image_key: None,
+                    very_old_image_key: None,
+                });
 
                 self.observer.on_context_create(id, texture_id, real_size);
 
-                Ok((id, limits, image_key))
+                Ok((id, limits, share_mode))
             },
             Err(msg) => {
                 Err(msg.to_owned())
@@ -200,7 +216,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
     fn resize(&mut self,
               context_id: WebGLContextId,
               size: Size2D<i32>,
-              sender: WebGLSender<Result<webrender_api::ImageKey, String>>) {
+              sender: WebGLSender<Result<(), String>>) {
         let ctx = self.contexts.get_mut(&context_id).unwrap();
         if Some(context_id) != self.current_bound_webgl_context_id {
             ctx.make_current();
@@ -208,13 +224,20 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
         }
         match ctx.resize(size) {
             Ok(_) => {
-                // Update webgl texture size. Texture id may change too.
                 let (real_size, texture_id, _) = ctx.get_info();
                 self.observer.on_context_resize(context_id, texture_id, real_size);
-                // TODO remove old image keys
-                let image_key = Self::create_webrender_image(&self.webrender_api, real_size, context_id);
-                self.cached_context_info.insert(context_id, (texture_id, real_size, image_key));
-                sender.send(Ok(image_key)).unwrap();
+
+                let info = self.cached_context_info.get_mut(&context_id).unwrap();
+                // Update webgl texture size. Texture id may change too.
+                info.texture_id = texture_id;
+                info.size = real_size;
+                // WR doesn't support resizing and requires to create a new ImageKey.
+                // Mark the current image_key to be deleted later.
+                if let Some(image_key) = info.image_key.take() {
+                    self.old_images.push(image_key);
+                }
+    
+                sender.send(Ok(())).unwrap();
             },
             Err(msg) => {
                 sender.send(Err(msg.into())).unwrap();
@@ -223,24 +246,72 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
     }
 
     fn remove_context(&mut self, context_id: WebGLContextId) {
+        if let Some(info) = self.cached_context_info.remove(&context_id) {
+            if let Some(image_key) = info.image_key {
+                self.webrender_api.delete_image(image_key);
+            }
+            if let Some(image_key) = info.old_image_key {
+                self.webrender_api.delete_image(image_key);
+            }
+            if let Some(image_key) = info.very_old_image_key {
+                self.webrender_api.delete_image(image_key);
+            }
+        }
+
         if self.contexts.remove(&context_id).is_some() {
             self.observer.on_context_delete(context_id);
         }
+
         // Removing a GLContext may make the current bound context_id dirty.
         self.current_bound_webgl_context_id = None;
     }
 
-    fn create_webrender_image(webrender_api: &webrender_api::RenderApi,
-                              size: Size2D<i32>,
-                              context_id: WebGLContextId) -> webrender_api::ImageKey {
-        let descriptor = webrender_api::ImageDescriptor {
-            width: size.width as u32,
-            height: size.height as u32,
-            stride: None,
-            format: webrender_api::ImageFormat::BGRA8,
-            offset: 0,
-            is_opaque: true,
+    fn handle_update_wr_image(&mut self, context_id: WebGLContextId, sender: WebGLSender<webrender_api::ImageKey>) {
+        let info = self.cached_context_info.get_mut(&context_id).unwrap();
+        let webrender_api = &self.webrender_api;
+
+        let image_key = match info.share_mode {
+            WebGLContextShareMode::SharedTexture => {
+                let size = info.size;
+                *info.image_key.get_or_insert_with(|| {
+                    Self::create_wr_external_image(webrender_api, size, context_id)
+                })
+            },
+            WebGLContextShareMode::Readback => {
+                let pixels = Self::raw_pixels(&self.contexts[&context_id], info.size);
+                match info.image_key.clone() {
+                    Some(image_key) => {
+                        // WR Images must be updated every frame in readback mode
+                        Self::update_wr_readback_image(webrender_api,
+                                                       info.size,
+                                                       image_key,
+                                                       pixels);
+
+                        image_key
+                    },
+                    None => {
+                        let image_key = Self::create_wr_readback_image(webrender_api,
+                                                                       info.size,
+                                                                       pixels);
+                        info.image_key = Some(image_key);
+                        image_key
+                    }
+                }
+            }
         };
+
+        // Delete old image
+        if let Some(image_key) = mem::replace(&mut info.very_old_image_key, info.old_image_key.take()) {
+            webrender_api.delete_image(image_key);
+        }
+
+        sender.send(image_key).unwrap();
+    }
+
+    fn create_wr_external_image(webrender_api: &webrender_api::RenderApi,
+                                size: Size2D<i32>,
+                                context_id: WebGLContextId) -> webrender_api::ImageKey {
+        let descriptor = Self::image_descriptor(size);
 
         let data = webrender_api::ExternalImageData {
             id: webrender_api::ExternalImageId(context_id.0 as u64),
@@ -257,33 +328,91 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
         image_key
     }
 
-    fn update_webrender_image(webrender_api: &webrender_api::RenderApi,
-                              size: Size2D<i32>,
-                              image_key: webrender_api::ImageKey,
-                              context_id: WebGLContextId) {
-        let descriptor = webrender_api::ImageDescriptor {
-            width: size.width as u32,
-            height: size.height as u32,
-            stride: None,
-            format: webrender_api::ImageFormat::BGRA8,
-            offset: 0,
-            is_opaque: true,
-        };
+    fn create_wr_readback_image(webrender_api: &webrender_api::RenderApi, 
+                                size: Size2D<i32>, 
+                                data: Vec<u8>) -> webrender_api::ImageKey { 
+        let descriptor = Self::image_descriptor(size);
+        let data = webrender_api::ImageData::new(data);
+ 
+        let image_key = webrender_api.generate_image_key();
+        webrender_api.add_image(image_key,
+                                descriptor,
+                                data,
+                                None);
+        image_key
+    }
 
-        let data = webrender_api::ExternalImageData {
-            id: webrender_api::ExternalImageId(context_id.0 as u64),
-            channel_index: 0,
-            image_type: webrender_api::ExternalImageType::Texture2DHandle,
-        };
-        let data = webrender_api::ImageData::External(data);
+    fn update_wr_readback_image(webrender_api: &webrender_api::RenderApi, 
+                                size: Size2D<i32>, 
+                                image_key: webrender_api::ImageKey, 
+                                data: Vec<u8>) { 
+        let descriptor = Self::image_descriptor(size);
+        let data = webrender_api::ImageData::new(data);
+ 
+        webrender_api.update_image(image_key, 
+                                   descriptor, 
+                                   data, 
+                                   None); 
+    }
 
-        webrender_api.update_image(image_key,
-                                   descriptor,
-                                   data,
-                                   None);
+    fn image_descriptor(size: Size2D<i32>) -> webrender_api::ImageDescriptor {
+        webrender_api::ImageDescriptor { 
+            width: size.width as u32, 
+            height: size.height as u32, 
+            stride: None, 
+            format: webrender_api::ImageFormat::BGRA8, 
+            offset: 0, 
+            is_opaque: true, 
+        }
+    }
+
+    fn raw_pixels(context: &GLContextWrapper, size: Size2D<i32>) -> Vec<u8> {
+        let width = size.width as usize;
+        let height = size.height as usize;
+
+        let mut pixels = context.gl().read_pixels(0, 0,
+                                                  size.width as gl::GLsizei,
+                                                  size.height as gl::GLsizei,
+                                                  gl::RGBA, gl::UNSIGNED_BYTE);
+        // flip image vertically (texture is upside down)
+        let orig_pixels = pixels.clone();
+        let stride = width * 4;
+        for y in 0..height {
+            let dst_start = y * stride;
+            let src_start = (height - y - 1) * stride;
+            let src_slice = &orig_pixels[src_start .. src_start + stride];
+            (&mut pixels[dst_start .. dst_start + stride]).clone_from_slice(&src_slice[..stride]);
+        }
+        byte_swap(&mut pixels);
+        pixels
     }
 }
 
+impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> Drop for WebGLThread<VR, OB> {
+    fn drop(&mut self) {
+        // Call remove_context functions in order to correctly delete WebRender image keys.
+        let context_ids: Vec<WebGLContextId> = self.contexts.keys().map(|id| *id).collect();
+        for id in context_ids {
+            self.remove_context(id);
+        }
+    }
+}
+
+/// Helper struct to store cached WebGLContext information.
+struct WebGLContextInfo {
+    /// Render to texture identifier used by the WebGLContext.
+    texture_id: u32,
+    /// Size of the WebGLContext.
+    size: Size2D<i32>,
+    /// Currently used WebRender image key.
+    image_key: Option<webrender_api::ImageKey>,
+    /// The sharing mode used to send the image to WebRender.
+    share_mode: WebGLContextShareMode,
+    /// An old WebRender image key that can be deleted when the next epoch ends.
+    old_image_key: Option<webrender_api::ImageKey>,
+    /// An old WebRender image key that can be deleted when the current epoch ends.
+    very_old_image_key: Option<webrender_api::ImageKey>,
+}
 
 /// Trait used to observe events in a WebGL Thread.
 /// Used in webrender::ExternalImageHandler when multiple WebGL threads are used.

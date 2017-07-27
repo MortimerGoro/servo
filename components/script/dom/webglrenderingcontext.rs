@@ -4,8 +4,8 @@
 
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use canvas_traits::canvas::{byte_swap, multiply_u8_pixel};
-use canvas_traits::webgl::{webgl_channel, WebGLCommand, WebGLError, WebGLFramebufferBindingRequest};
-use canvas_traits::webgl::{WebGLMsg, WebGLMsgSender, WebGLParameter, WebVRCommand};
+use canvas_traits::webgl::{webgl_channel, WebGLContextShareMode, WebGLCommand, WebGLError};
+use canvas_traits::webgl::{WebGLFramebufferBindingRequest, WebGLMsg, WebGLMsgSender, WebGLParameter, WebVRCommand};
 use canvas_traits::webgl::WebGLError::*;
 use core::cell::Ref;
 use core::iter::FromIterator;
@@ -135,7 +135,8 @@ pub struct WebGLRenderingContext {
     #[ignore_heap_size_of = "Channels are hard"]
     webgl_sender: WebGLMsgSender,
     #[ignore_heap_size_of = "Defined in webrender"]
-    webrender_image: Cell<webrender_api::ImageKey>,
+    webrender_image: Cell<Option<webrender_api::ImageKey>>,
+    share_mode: WebGLContextShareMode,
     #[ignore_heap_size_of = "Defined in offscreen_gl_context"]
     limits: GLLimits,
     canvas: JS<HTMLCanvasElement>,
@@ -180,7 +181,8 @@ impl WebGLRenderingContext {
             WebGLRenderingContext {
                 reflector_: Reflector::new(),
                 webgl_sender: ctx_data.sender,
-                webrender_image: Cell::new(ctx_data.image_key),
+                webrender_image: Cell::new(None),
+                share_mode: ctx_data.share_mode,
                 limits: ctx_data.limits,
                 canvas: JS::from_ref(canvas),
                 last_error: Cell::new(None),
@@ -256,17 +258,14 @@ impl WebGLRenderingContext {
         let (sender, receiver) = webgl_channel().unwrap();
         self.webgl_sender.send_resize(size, sender).unwrap();
         
-        let image_key = match receiver.recv().unwrap() {
-            Ok(image_key) => {
-                image_key
-            },
-            Err(msg) => {
-                error!("Error resizing WebGLContext: {}", msg);
-                return;
-            }
+        if let Err(msg) = receiver.recv().unwrap() {
+            error!("Error resizing WebGLContext: {}", msg);
+            return;
         };
 
-        self.webrender_image.set(image_key);
+        // Reset webrender_image because resize creates a new image_key.
+        // The new image key is set in the next handle_layout() method.
+        self.webrender_image.set(None);
 
         // ClearColor needs to be restored because after a resize the GLContext is recreated
         // and the framebuffer is cleared using the default black transparent color.
@@ -1069,10 +1068,26 @@ impl WebGLRenderingContext {
     }
 
     fn handle_layout(&self) -> webrender_api::ImageKey {
-        //let (sender, receiver) = webgl_channel().unwrap();
-        //self.webgl_sender.send_update(sender).unwrap();
-        //receiver.recv().unwrap();
-        self.webrender_image.get()
+        match self.share_mode {
+            WebGLContextShareMode::SharedTexture => {
+                // WR using ExternalTexture requires a single update message.
+                self.webrender_image.get().unwrap_or_else(|| {
+                    let (sender, receiver) = webgl_channel().unwrap();
+                    self.webgl_sender.send_update_wr_image(sender).unwrap();
+                    let image_key = receiver.recv().unwrap();
+                    self.webrender_image.set(Some(image_key));
+
+                    image_key
+                })
+            },
+            WebGLContextShareMode::Readback => {
+                // WR using Readback requires to update WR image every frame
+                // in order to send the new raw pixels.
+                let (sender, receiver) = webgl_channel().unwrap();
+                self.webgl_sender.send_update_wr_image(sender).unwrap();
+                receiver.recv().unwrap()
+            }
+        }
     }
 }
 
