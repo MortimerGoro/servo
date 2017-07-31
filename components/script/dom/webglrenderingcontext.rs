@@ -278,7 +278,15 @@ impl WebGLRenderingContext {
         // NativeContext handling library changes the scissor after a resize, so we need to reset the
         // default scissor when the canvas was created or the last scissor that the user set.
         let rect = self.current_scissor.get();
-        self.send_command(WebGLCommand::Scissor(rect.0, rect.1, rect.2, rect.3));
+        self.ipc_renderer
+            .send(CanvasMsg::WebGL(WebGLCommand::Scissor(rect.0, rect.1, rect.2, rect.3)))
+            .unwrap();
+
+        if let Some(id) = self.bound_texture_2d.get() {
+            self.ipc_renderer
+            .send(CanvasMsg::WebGL(WebGLCommand::BindTexture(constants::TEXTURE_2D, Some(id.id()))))
+            .unwrap();
+        }
     }
 
     pub fn webgl_sender(&self) -> WebGLMsgSender {
