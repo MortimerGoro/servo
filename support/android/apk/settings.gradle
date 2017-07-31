@@ -1,1 +1,3 @@
 include ':app'
+include ':GVRService'
+project(':GVRService').projectDir = new File('/home/mortimer/Projects/rust-webvr/src/api/googlevr/gradle')

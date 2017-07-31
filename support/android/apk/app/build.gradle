@@ -10,10 +10,11 @@ android {
     buildToolsVersion "25.0.2"
 
     defaultConfig {
+        //applicationId "com.servo.rollercoaster"
         applicationId "com.mozilla.servo"
-        minSdkVersion 18
+        minSdkVersion 21
         targetSdkVersion 25
-        versionCode 1
+        versionCode 3
         versionName "1.0.0"
         jackOptions {
             enabled true
@@ -39,28 +40,28 @@ android {
             assets.srcDirs = ['../../../../resources']
         }
         armDebug {
-            jniLibs.srcDirs = [getJniLibsPath(true, 'arm')]
+            jniLibs.srcDirs = getJniLibsPath(true, 'arm')
         }
         armRelease {
-            jniLibs.srcDirs = [getJniLibsPath(false, 'arm')]
+            jniLibs.srcDirs = getJniLibsPath(false, 'arm')
         }
         armv7Debug {
-            jniLibs.srcDirs = [getJniLibsPath(true, 'armv7')]
+            jniLibs.srcDirs = getJniLibsPath(true, 'armv7')
         }
         armv7Release {
-            jniLibs.srcDirs = [getJniLibsPath(false, 'armv7')]
+            jniLibs.srcDirs = getJniLibsPath(false, 'armv7')
         }
         arm64Debug {
-            jniLibs.srcDirs = [getJniLibsPath(true, 'arm64')]
+            jniLibs.srcDirs = getJniLibsPath(true, 'arm64')
         }
         arm64Release {
-            jniLibs.srcDirs = [getJniLibsPath(false, 'arm64')]
+            jniLibs.srcDirs = getJniLibsPath(false, 'arm64')
         }
         x86Debug {
-            jniLibs.srcDirs = [getJniLibsPath(true, 'x86')]
+            jniLibs.srcDirs = getJniLibsPath(true, 'x86')
         }
         x86Release {
-            jniLibs.srcDirs = [getJniLibsPath(false, 'x86')]
+            jniLibs.srcDirs = getJniLibsPath(false, 'x86')
         }
     }
 
@@ -71,6 +72,7 @@ android {
         }
 
         release {
+            debuggable true
             signingConfig signingConfigs.debug // Change this to sign with a production key
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
@@ -161,7 +163,7 @@ android {
                 commandLine getNdkDir(),
                         'APP_BUILD_SCRIPT=../jni/Android.mk',
                         'NDK_APPLICATION_MK=../jni/Application.mk',
-                        'NDK_LIBS_OUT=' + getJniLibsPath(debug, arch),
+                        'NDK_LIBS_OUT=' + getServoLibsPath(debug, arch),
                         'NDK_OUT=' + getTargetDir(debug, arch) + '/apk/obj',
                         'NDK_DEBUG=' + (debug ? '1' : '0'),
                         'APP_ABI=' + getNDKAbi(arch),
@@ -173,6 +175,10 @@ android {
 }
 
 dependencies {
+    compile 'com.google.vr:sdk-base:1.30.0'
+    compile 'com.google.vr:sdk-audio:1.30.0'
+    compile project(':GVRService')
+
     //Dependency list
     def deps = [
        new ServoDependency("blurdroid.jar", "blurdroid")
@@ -206,9 +212,17 @@ String getApkPath(boolean debug, String arch) {
     return getTargetDir(debug, arch) + '/servo.apk'
 }
 
-String getJniLibsPath(boolean debug, String arch) {
+String getServoLibsPath(boolean debug, String arch) {
     return getTargetDir(debug, arch) + '/apk/jniLibs'
 }
+
+def getJniLibsPath(boolean debug, String arch) {
+    return [
+            getServoLibsPath(debug, arch),
+            "../libs"
+    ]
+}
+
 
 String getArch(String buildType) {
     return buildType.replaceAll(/(Debug|Release)/, '')
