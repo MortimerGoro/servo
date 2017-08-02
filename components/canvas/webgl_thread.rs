@@ -195,6 +195,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
         let result = self.gl_factory.new_shared_context(size, attributes)
                                     .map(|r| (r, WebGLContextShareMode::SharedTexture))
                                     .or_else(|_| {
+                                        panic!("readback");
                                         let ctx = self.gl_factory.new_context(size, attributes);
                                         ctx.map(|r| (r, WebGLContextShareMode::Readback))
                                     });
@@ -502,8 +503,8 @@ impl<T: WebGLExternalImageApi> webrender::ExternalImageHandler for WebGLExternal
         webrender::ExternalImage {
             u0: 0.0,
             u1: size.width as f32,
-            v1: 0.0,
-            v0: size.height as f32,
+            v0: 0.0,
+            v1: size.height as f32,
             source: webrender::ExternalImageSource::NativeTexture(texture_id),
         }
 
@@ -763,8 +764,8 @@ impl WebGLImpl {
 
         // TODO: update test expectations in order to enable debug assertions
         //if cfg!(debug_assertions) {
-            let error = ctx.gl().get_error();
-            assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
+            //let error = ctx.gl().get_error();
+            //assert!(error == gl::NO_ERROR, "Unexpected WebGL error: 0x{:x} ({})", error, error);
         //}
     }
 
