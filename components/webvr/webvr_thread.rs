@@ -361,7 +361,8 @@ impl webgl::WebVRRenderHandler for WebVRCompositorHandler {
                             texture_size: Some((size.width as u32, size.height as u32))
                         };
                         unsafe {
-                            (*compositor.0).submit_frame(&layer);
+                            (*compositor.0).render_layer(&layer);
+                            (*compositor.0).submit_frame();
                         }
                     }
                 }
