@@ -19,6 +19,7 @@ extern crate offscreen_gl_context;
 #[macro_use] extern crate serde;
 extern crate servo_config;
 extern crate webrender_api;
+extern crate webvr_traits;
 
 pub mod canvas;
 pub mod webgl;

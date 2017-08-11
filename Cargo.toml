@@ -22,3 +22,4 @@ opt-level = 3
 
 "rust-webvr:0.6.1" = { path = "/home/mortimer/Projects/rust-webvr" } 
 "offscreen_gl_context:0.11.0" = { path = "/home/mortimer/Projects/rust-offscreen-rendering-context" }
+"https://github.com/servo/angle#0.4.0" = { path = "/home/mortimer/Projects/angle" }

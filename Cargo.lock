@@ -40,6 +40,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "angle"
 version = "0.4.0"
 source = "git+https://github.com/servo/angle?branch=servo#bf8c7e19b4a28c40e1ef1374ab39a3aea24a79e0"
+replace = "angle 0.4.0"
+
+[[package]]
+name = "angle"
+version = "0.4.0"
 dependencies = [
  "cmake 0.1.22 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -351,6 +356,7 @@ dependencies = [
  "serde 1.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo_config 0.0.1",
  "webrender_api 0.48.0 (git+https://github.com/servo/webrender)",
+ "webvr_traits 0.0.1",
 ]
 
 [[package]]

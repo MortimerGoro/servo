@@ -105,12 +105,14 @@ impl WebGLShader {
         if let Some(ref source) = *self.source.borrow() {
             let mut params = BuiltInResources::default();
             params.FragmentPrecisionHigh = 1;
-            let validator = ShaderValidator::for_webgl(self.gl_type,
-                                                       SHADER_OUTPUT_FORMAT,
-                                                       &params).unwrap();
+            params.OVR_multiview = 1;
+            params.MaxViewsOVR = 2;
+            let validator = ShaderValidator::for_webgl2(self.gl_type,
+                                                        SHADER_OUTPUT_FORMAT,
+                                                        &params).unwrap();
             match validator.compile_and_translate(&[source]) {
                 Ok(translated_source) => {
-                    debug!("Shader translated: {}", translated_source);
+                    println!("Shader translated: {}", translated_source);
                     // NOTE: At this point we should be pretty sure that the compilation in the paint thread
                     // will succeed.
                     // It could be interesting to retrieve the info log from the paint thread though
