@@ -79,6 +79,7 @@ found in the LICENSE file.
       var frameData = null;
       var projectionMat = mat4.create();
       var viewMat = mat4.create();
+      var viewMat2 = mat4.create();
       var vrPresentButton = null;
 
       // ===================================================
@@ -132,7 +133,11 @@ found in the LICENSE file.
       // ================================
 
       function onVRRequestPresent () {
-        vrDisplay.requestPresent([{ source: webglCanvas }]).then(function () {
+        var attributes = {
+          depth: true,
+          multiview: true,
+        };
+        vrDisplay.requestPresent([{ source: webglCanvas, attributes: attributes}]).then(function () {
         }, function () {
           VRSamplesUtil.addError("requestPresent failed.", 2000);
         });
@@ -250,12 +255,16 @@ found in the LICENSE file.
         }
       }
 
-      function renderSceneView (projection, view, pose) {
-        cubeIsland.render(projection, view, stats);
+      function renderSceneView (projection, view, pose, multiview) {
+        cubeIsland.render(projection, view, stats, multiview);
 
         // For fun, draw a blue cube where the players head would have been if
         // we weren't taking the stageParameters into account. It'll start in
         // the center of the floor.
+        if (multiview) {
+          // TODO: adapt debugGeom for multiview
+          return;
+        }
         var orientation = pose.orientation;
         var position = pose.position;
         if (!orientation) { orientation = [0, 0, 0, 1]; }
@@ -275,13 +284,48 @@ found in the LICENSE file.
           vrDisplay.getFrameData(frameData);
 
           if (vrDisplay.isPresenting) {
-            gl.viewport(0, 0, webglCanvas.width * 0.5, webglCanvas.height);
-            getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
-            renderSceneView(frameData.leftProjectionMatrix, viewMat, frameData.pose);
+            var views = vrDisplay.getViews ? vrDisplay.getViews() : [];
 
-            gl.viewport(webglCanvas.width * 0.5, 0, webglCanvas.width * 0.5, webglCanvas.height);
-            getStandingViewMatrix(viewMat, frameData.rightViewMatrix);
-            renderSceneView(frameData.rightProjectionMatrix, viewMat, frameData.pose);
+            if (views.length > 0) {
+              var view = views[0];
+              gl.enable(gl.SCISSOR_TEST);
+              for (var i = 0; i < views.length; ++i) {
+                var view = views[i];
+                var multiview = view.getAttributes().multiview;
+                console.log("multiview: " + multiview);
+                var viewport = view.getViewport();
+                gl.bindFramebuffer(gl.FRAMEBUFFER, view.framebuffer);
+                gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+                gl.scissor(viewport.x, viewport.y, viewport.width, viewport.height);
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+                if (multiview) {
+                  var projections = [frameData.leftProjectionMatrix, frameData.rightProjectionMatrix];
+                  getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
+                  getStandingViewMatrix(viewMat2, frameData.rightViewMatrix);
+                  var viewMats = [viewMat, viewMat2];
+                  renderSceneView(projections, viewMats, frameData.pose, /*multiview*/ true);
+                  break;
+                }
+                else {
+                  // Direct render to VR framebuffer
+                  getStandingViewMatrix(viewMat, i == 0 ? frameData.leftViewMatrix : frameData.rightViewMatrix);
+                  renderSceneView(i == 0 ? frameData.leftProjectionMatrix : frameData.rightProjectionMatrix, viewMat, frameData.pose);
+                }
+
+              }
+              gl.disable(gl.SCISSOR_TEST);
+            }
+            else {
+              gl.viewport(0, 0, webglCanvas.width * 0.5, webglCanvas.height);
+              getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
+              renderSceneView(frameData.leftProjectionMatrix, viewMat, frameData.pose);
+
+              gl.viewport(webglCanvas.width * 0.5, 0, webglCanvas.width * 0.5, webglCanvas.height);
+              getStandingViewMatrix(viewMat, frameData.rightViewMatrix);
+              renderSceneView(frameData.rightProjectionMatrix, viewMat, frameData.pose);
+            }
+
+
 
             vrDisplay.submitFrame();
           } else {
