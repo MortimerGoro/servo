@@ -55,6 +55,9 @@ impl WebVRThread {
            -> WebVRThread {
         let mut service = VRServiceManager::new();
         service.register_defaults();
+        if !cfg!(target_os = "android") {
+            service.register_mock();
+        }
         WebVRThread {
             receiver: receiver,
             sender: sender,
