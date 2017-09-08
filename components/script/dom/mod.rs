@@ -464,6 +464,8 @@ pub mod vreyeparameters;
 pub mod vrfieldofview;
 pub mod vrframedata;
 pub mod vrpose;
+pub mod vrview;
+pub mod vrviewlist;
 pub mod vrstageparameters;
 pub mod webgl_extensions;
 pub use self::webgl_extensions::ext::*;

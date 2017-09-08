@@ -4,7 +4,7 @@
 
 // https://www.khronos.org/registry/webgl/specs/latest/1.0/webgl.idl
 use canvas_traits::webgl::{WebGLCommand, WebGLFramebufferBindingRequest, WebGLFramebufferId};
-use canvas_traits::webgl::{WebGLMsgSender, WebGLResult, WebGLError};
+use canvas_traits::webgl::{WebGLMsg, WebGLMsgSender, WebGLResult, WebGLError};
 use canvas_traits::webgl::webgl_channel;
 use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::WebGLFramebufferBinding;
@@ -43,24 +43,30 @@ pub struct WebGLFramebuffer {
     depth: DOMRefCell<Option<WebGLFramebufferAttachment>>,
     stencil: DOMRefCell<Option<WebGLFramebufferAttachment>>,
     depthstencil: DOMRefCell<Option<WebGLFramebufferAttachment>>,
+
+    // Opaque framebuffers only allow bind commands.
+    #[ignore_heap_size_of = "Defined in rust-webvr"]
+    opaque_bind_msg: Option<WebGLMsg>,
 }
 
 impl WebGLFramebuffer {
     fn new_inherited(renderer: WebGLMsgSender,
-                     id: WebGLFramebufferId)
+                     id: WebGLFramebufferId,
+                     opaque_bind_msg: Option<WebGLMsg>)
                      -> WebGLFramebuffer {
         WebGLFramebuffer {
             webgl_object: WebGLObject::new_inherited(),
-            id: id,
+            id,
             target: Cell::new(None),
             is_deleted: Cell::new(false),
-            renderer: renderer,
+            renderer,
             size: Cell::new(None),
             status: Cell::new(constants::FRAMEBUFFER_UNSUPPORTED),
             color: DOMRefCell::new(None),
             depth: DOMRefCell::new(None),
             stencil: DOMRefCell::new(None),
             depthstencil: DOMRefCell::new(None),
+            opaque_bind_msg,
         }
     }
 
@@ -77,10 +83,25 @@ impl WebGLFramebuffer {
                renderer: WebGLMsgSender,
                id: WebGLFramebufferId)
                -> Root<WebGLFramebuffer> {
-        reflect_dom_object(box WebGLFramebuffer::new_inherited(renderer, id),
+        reflect_dom_object(box WebGLFramebuffer::new_inherited(renderer, id, None),
                            window,
                            WebGLFramebufferBinding::Wrap)
     }
+
+    pub fn new_opaque(window: &Window,
+                      renderer: WebGLMsgSender,
+                      id: WebGLFramebufferId,
+                      bind_msg: WebGLMsg)
+                      -> Root<WebGLFramebuffer> {
+        let fbo = reflect_dom_object(box WebGLFramebuffer::new_inherited(renderer, id, Some(bind_msg)),
+                                     window,
+                                     WebGLFramebufferBinding::Wrap);
+        // Opaque framebuffers are always complete.
+        fbo.status.set(constants::FRAMEBUFFER_COMPLETE);
+
+        fbo
+    }
+
 }
 
 
@@ -94,14 +115,18 @@ impl WebGLFramebuffer {
         // changed if its attachments were resized or deleted while
         // we've been unbound.
         self.update_status();
-
         self.target.set(Some(target));
-        let cmd = WebGLCommand::BindFramebuffer(target, WebGLFramebufferBindingRequest::Explicit(self.id));
-        self.renderer.send(cmd).unwrap();
+        if let Some(bind_msg) = self.opaque_bind_msg.as_ref() {
+            self.renderer.send_msg(bind_msg.clone()).unwrap();
+        } else {
+            let cmd = WebGLCommand::BindFramebuffer(target, WebGLFramebufferBindingRequest::Explicit(self.id));
+            self.renderer.send(cmd).unwrap();
+        }
+
     }
 
     pub fn delete(&self) {
-        if !self.is_deleted.get() {
+        if !self.is_deleted.get() && !self.is_opaque() {
             self.is_deleted.set(true);
             let _ = self.renderer.send(WebGLCommand::DeleteFramebuffer(self.id));
         }
@@ -116,6 +141,10 @@ impl WebGLFramebuffer {
     }
 
     fn update_status(&self) {
+        if self.is_opaque() {
+            return;
+        }
+
         let c = self.color.borrow();
         let z = self.depth.borrow();
         let s = self.stencil.borrow();
@@ -183,7 +212,15 @@ impl WebGLFramebuffer {
         return self.status.get();
     }
 
+    fn is_opaque(&self) -> bool {
+        self.opaque_bind_msg.is_some()
+    }
+
     pub fn renderbuffer(&self, attachment: u32, rb: Option<&WebGLRenderbuffer>) -> WebGLResult<()> {
+        if self.is_opaque() {
+            return Err(WebGLError::InvalidOperation);
+        }
+
         let binding = match attachment {
             constants::COLOR_ATTACHMENT0 => &self.color,
             constants::DEPTH_ATTACHMENT => &self.depth,
@@ -215,6 +252,10 @@ impl WebGLFramebuffer {
 
     pub fn texture2d(&self, attachment: u32, textarget: u32, texture: Option<&WebGLTexture>,
                      level: i32) -> WebGLResult<()> {
+        if self.is_opaque() {
+            return Err(WebGLError::InvalidOperation);
+        }
+
         let binding = match attachment {
             constants::COLOR_ATTACHMENT0 => &self.color,
             constants::DEPTH_ATTACHMENT => &self.depth,

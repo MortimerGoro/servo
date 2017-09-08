@@ -11,11 +11,12 @@ use dom::bindings::codegen::Bindings::VRDisplayBinding;
 use dom::bindings::codegen::Bindings::VRDisplayBinding::VRDisplayMethods;
 use dom::bindings::codegen::Bindings::VRDisplayBinding::VREye;
 use dom::bindings::codegen::Bindings::VRLayerBinding::VRLayer;
+use dom::bindings::codegen::Bindings::VRViewBinding::VRAttributes;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextMethods;
 use dom::bindings::codegen::Bindings::WindowBinding::FrameRequestCallback;
 use dom::bindings::codegen::Bindings::WindowBinding::WindowBinding::WindowMethods;
 use dom::bindings::inheritance::Castable;
-use dom::bindings::js::{MutNullableJS, MutJS, Root};
+use dom::bindings::js::{MutNullableJS, MutJS, Root, RootedReference};
 use dom::bindings::num::Finite;
 use dom::bindings::refcounted::Trusted;
 use dom::bindings::reflector::{DomObject, reflect_dom_object};
@@ -30,6 +31,8 @@ use dom::vreyeparameters::VREyeParameters;
 use dom::vrframedata::VRFrameData;
 use dom::vrpose::VRPose;
 use dom::vrstageparameters::VRStageParameters;
+use dom::vrview::VRView;
+use dom::vrviewlist::VRViewList;
 use dom::webglrenderingcontext::WebGLRenderingContext;
 use dom_struct::dom_struct;
 use ipc_channel::ipc::{self, IpcSender};
@@ -41,7 +44,8 @@ use std::mem;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread;
-use webvr_traits::{WebVRDisplayData, WebVRDisplayEvent, WebVRFrameData, WebVRLayer, WebVRMsg};
+use webvr_traits::{WebVRDisplayData, WebVRDisplayEvent, WebVRFrameData};
+use webvr_traits::{WebVRFramebufferAttributes, WebVRLayer, WebVRMsg};
 
 #[dom_struct]
 pub struct VRDisplay {
@@ -72,6 +76,9 @@ pub struct VRDisplay {
     running_display_raf: Cell<bool>,
     paused: Cell<bool>,
     stopped_on_pause: Cell<bool>,
+    #[ignore_heap_size_of = "Defined in rust-webvr"]
+    attributes: Cell<WebVRFramebufferAttributes>,
+    vr_views: MutNullableJS<VRViewList>,
 }
 
 unsafe_no_jsmanaged_fields!(WebVRDisplayData);
@@ -117,7 +124,9 @@ impl VRDisplay {
             paused: Cell::new(false),
             // This flag is set when the Display was presenting when it received a VR Pause event.
             // When the VR Resume event is received and the flag is set, VR presentation automatically restarts.
-            stopped_on_pause: Cell::new(false)
+            stopped_on_pause: Cell::new(false),
+            attributes: Cell::new(Default::default()),
+            vr_views: MutNullableJS::default(),
         }
     }
 
@@ -305,9 +314,10 @@ impl VRDisplayMethods for VRDisplay {
         let layer_ctx;
 
         match layer {
-            Ok((bounds, ctx)) => {
+            Ok((bounds, ctx, attributes)) => {
                 layer_bounds = bounds;
                 layer_ctx = ctx;
+                self.attributes.set(attributes);
             },
             Err(msg) => {
                 let msg = msg.to_string();
@@ -397,12 +407,27 @@ impl VRDisplayMethods for VRDisplay {
         }
 
         let layer = self.layer.borrow();
+        let attributes = self.attributes.get();
 
         vec![VRLayer {
             leftBounds: Some(bounds_to_vec(&layer.left_bounds)),
             rightBounds: Some(bounds_to_vec(&layer.right_bounds)),
             source: self.layer_ctx.get().map(|ctx| ctx.Canvas()),
+            attributes: VRAttributes {
+                depth: attributes.depth,
+                multiview: attributes.multiview,
+                antialias: attributes.multisampling,
+            },
         }]
+    }
+
+    // https://w3c.github.io/webvr/spec/latest/#vrview-interface
+    fn GetViews(&self) -> Option<Root<VRViewList>> {
+        if !self.presenting.get() {
+            return None;
+        }
+
+        self.vr_views.get()
     }
 }
 
@@ -495,6 +520,18 @@ impl VRDisplay {
         let near_init = self.depth_near.get();
         let far_init = self.depth_far.get();
 
+        // Initialize compositor
+        let (fbos_sender, fbos_receiver) = webgl_channel().unwrap();
+        api_sender.send_vr(WebVRCommand::Create(display_id, self.attributes.get(), fbos_sender)).unwrap();
+        let mut fbos = fbos_receiver.recv().unwrap();
+        rooted_vec!(let list <- fbos.drain(0..)
+                                    .map(|fbo| VRView::new(&self.global(),
+                                                           api_sender.clone(),
+                                                           display_id,
+                                                           fbo)));
+        let viewlist = VRViewList::new(self.global().as_window(), list.r());
+        self.vr_views.set(Some(&viewlist));
+
         // The render loop at native headset frame rate is implemented using a dedicated thread.
         // Every loop iteration syncs pose data with the HMD, submits the pixels to the display and waits for Vsync.
         // Both the requestAnimationFrame call of a VRDisplay in the JavaScript thread and the VRSyncPoses call
@@ -506,8 +543,6 @@ impl VRDisplay {
             let mut near = near_init;
             let mut far = far_init;
 
-            // Initialize compositor
-            api_sender.send_vr(WebVRCommand::Create(display_id)).unwrap();
             loop {
                 // Run RAF callbacks on JavaScript thread
                 let this = address.clone();
@@ -630,13 +665,19 @@ fn parse_bounds(src: &Option<Vec<Finite<f32>>>, dst: &mut [f32; 4]) -> Result<()
 
 fn validate_layer(cx: *mut JSContext,
                   layer: &VRLayer)
-                  -> Result<(WebVRLayer, Root<WebGLRenderingContext>), &'static str> {
+                  -> Result<(WebVRLayer, Root<WebGLRenderingContext>, WebVRFramebufferAttributes),
+                             &'static str> {
     let ctx = layer.source.as_ref().map(|ref s| s.get_or_init_webgl_context(cx, None)).unwrap_or(None);
     if let Some(ctx) = ctx {
         let mut data = WebVRLayer::default();
         parse_bounds(&layer.leftBounds, &mut data.left_bounds)?;
         parse_bounds(&layer.rightBounds, &mut data.right_bounds)?;
-        Ok((data, ctx))
+        let attributes = WebVRFramebufferAttributes {
+            depth: layer.attributes.depth,
+            multiview: layer.attributes.multiview,
+            multisampling: layer.attributes.antialias,
+        };
+        Ok((data, ctx, attributes))
     } else {
         Err("VRLayer source must be a WebGL Context")
     }

@@ -128,4 +128,9 @@ interface VRDisplay : EventTarget {
    * created without preserveDrawingBuffer set to true will be cleared.
    */
   void submitFrame();
+
+  /**
+   * Get the layers currently being presented.
+   */
+  VRViewList? getViews();
 };
