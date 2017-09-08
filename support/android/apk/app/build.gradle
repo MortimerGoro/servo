@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         //applicationId "com.servo.rollercoaster"
-        applicationId "com.mozilla.servo"
+        applicationId "com.mozilla.servo.multiview"
         minSdkVersion 21
         targetSdkVersion 25
         versionCode 3
