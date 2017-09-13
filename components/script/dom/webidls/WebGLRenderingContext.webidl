@@ -654,6 +654,9 @@ interface WebGLRenderingContextBase
     [Throws]
     void texImage2D(GLenum target, GLint level, GLenum internalformat,
                     GLenum format, GLenum type, TexImageSource? source); // May throw DOMException
+    [Throws]
+    void texImage2DDOM(GLenum target, GLint level, GLenum internalformat,
+                       GLenum format, GLenum type, HTMLIFrameElement source); // May throw DOMException
 
     void texParameterf(GLenum target, GLenum pname, GLfloat param);
     void texParameteri(GLenum target, GLenum pname, GLint param);

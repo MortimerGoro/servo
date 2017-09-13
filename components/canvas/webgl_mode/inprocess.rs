@@ -4,6 +4,7 @@
 
 use ::gl_context::GLContextFactory;
 use ::webgl_thread::{WebGLExternalImageApi, WebGLExternalImageHandler, WebGLThreadObserver, WebGLThread};
+use canvas_traits::webgl::DOMToTextureCommand;
 use canvas_traits::webgl::{WebGLChan, WebGLContextId, WebGLMsg, WebGLPipeline, WebGLReceiver};
 use canvas_traits::webgl::{WebGLSender, WebVRCommand, WebVRRenderHandler};
 use canvas_traits::webgl::webgl_channel;
@@ -20,14 +21,15 @@ impl WebGLThreads {
     pub fn new(gl_factory: GLContextFactory,
                webrender_api_sender: webrender_api::RenderApiSender,
                webvr_compositor: Option<Box<WebVRRenderHandler>>)
-               -> (WebGLThreads, Box<webrender::ExternalImageHandler>) {
+               -> (WebGLThreads, Box<webrender::ExternalImageHandler>, Box<webrender::OutputImageHandler>) {
         // This implementation creates a single `WebGLThread` for all the pipelines.
         let channel = WebGLThread::start(gl_factory,
                                          webrender_api_sender,
                                          webvr_compositor.map(|c| WebVRRenderWrapper(c)),
                                          PhantomData);
         let external = WebGLExternalImageHandler::new(WebGLExternalImages::new(channel.clone()));
-        (WebGLThreads(channel), Box::new(external))
+        let output = OutputHandler::new(channel.clone());
+        (WebGLThreads(channel), Box::new(external), Box::new(output))
     }
 
     /// Gets the WebGLThread handle for each script pipeline.
@@ -91,5 +93,36 @@ struct WebVRRenderWrapper(Box<WebVRRenderHandler>);
 impl WebVRRenderHandler for WebVRRenderWrapper {
     fn handle(&mut self, command: WebVRCommand, texture: Option<(u32, Size2D<i32>)>) {
         self.0.handle(command, texture);
+    }
+}
+
+/// DOMToTexture
+struct OutputHandler {
+    webgl_channel: WebGLSender<WebGLMsg>,
+    // Used to avoid creating a new channel on each received WebRender request.
+    lock_channel: (WebGLSender<u32>, WebGLReceiver<u32>),
+}
+
+impl OutputHandler {
+    fn new(channel: WebGLSender<WebGLMsg>) -> Self {
+        Self {
+            webgl_channel: channel,
+            lock_channel: webgl_channel().unwrap(),
+        }
+    }
+}
+
+impl webrender::OutputImageHandler for OutputHandler {
+    fn lock(&mut self, id: webrender_api::PipelineId) -> Option<(u32, webrender_api::DeviceIntSize)> {
+        println!("lock");
+        let command = DOMToTextureCommand::Lock(id, self.lock_channel.0.clone());
+        self.webgl_channel.send(WebGLMsg::DOMToTextureCommand(None, command));
+        Some((self.lock_channel.1.recv().unwrap(), webrender_api::DeviceIntSize::new(512, 512)))
+    }
+
+    fn unlock(&mut self, id: webrender_api::PipelineId) {
+        println!("unlock");
+        let command = DOMToTextureCommand::Unlock(id);
+        self.webgl_channel.send(WebGLMsg::DOMToTextureCommand(None, command));
     }
 }
