@@ -36,6 +36,7 @@ pub struct WebGLThread<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver
     webvr_compositor: Option<VR>,
     /// Generic observer that listens WebGLContext creation, resize or removal events.
     observer: OB,
+    tex_id: u32,
 }
 
 impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, OB> {
@@ -52,6 +53,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             next_webgl_id: 0,
             webvr_compositor,
             observer: observer,
+            tex_id: 0,
         }
     }
 
@@ -116,6 +118,9 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             },
             WebGLMsg::UpdateWebRenderImage(ctx_id, sender) => {
                 self.handle_update_wr_image(ctx_id, sender);
+            },
+            WebGLMsg::DOMToTextureCommand(ctx_id, command) => {
+                self.handle_dom_to_texture(ctx_id, command);
             },
             WebGLMsg::Exit => {
                 return true;
@@ -320,6 +325,45 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
 
         // Send the ImageKey to the Layout thread.
         sender.send(image_key).unwrap();
+    }
+
+    fn handle_dom_to_texture(&mut self, context_id: Option<WebGLContextId>, command: DOMToTextureCommand) {
+        let id = self.contexts.keys().nth(0).unwrap();
+        let ctx = Self::make_current_if_needed(*id, &self.contexts, &mut self.bound_context_id)
+                        .expect("WebGLContext not found in a WebGLMsg::AttachFrameToTexture message");
+
+        match command {
+            DOMToTextureCommand::Attach(texture_id, document_id, pipeline_id, size) => {
+                let gl = ctx.gl();
+
+                let texture_id = texture_id.get();
+                gl.bind_texture(gl::TEXTURE_2D, texture_id);
+                gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
+                gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
+                gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
+                gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+                gl.tex_image_2d(gl::TEXTURE_2D,
+                                0,
+                                gl::RGBA as gl::GLint,
+                                size.width,
+                                size.height,
+                                0,
+                                gl::RGBA,
+                                gl::UNSIGNED_BYTE,
+                                None);
+                self.tex_id = texture_id;
+                self.webrender_api.enable_frame_output(document_id, pipeline_id, true);
+            },
+            DOMToTextureCommand::Lock(pipeline_id, sender) => {
+                sender.send(self.tex_id).unwrap();
+            },
+            DOMToTextureCommand::Unlock(pipeline_id) => {
+
+            },
+            DOMToTextureCommand::Dettach(texture_id) => {
+
+            },
+        }
     }
 
     /// Gets a reference to a GLContextWrapper for a given WebGLContextId and makes it current if required.
@@ -556,6 +600,7 @@ pub struct WebGLImpl;
 
 impl WebGLImpl {
     pub fn apply<Native: NativeGLContextMethods>(ctx: &GLContext<Native>, command: WebGLCommand) {
+        println!("WebGL::{:?}", command);
         match command {
             WebGLCommand::GetContextAttributes(sender) =>
                 sender.send(*ctx.borrow_attributes()).unwrap(),

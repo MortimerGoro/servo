@@ -6,7 +6,7 @@ use core::nonzero::NonZero;
 use euclid::Size2D;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::fmt;
-use webrender_api;
+use webrender_api::{DocumentId, ImageKey, PipelineId};
 
 /// Sender type used in WebGLCommands.
 pub use ::webgl_channel::WebGLSender;
@@ -46,7 +46,9 @@ pub enum WebGLMsg {
     /// Unlock messages are always sent after a Lock message.
     Unlock(WebGLContextId),
     /// Creates or updates the image keys required for WebRender.
-    UpdateWebRenderImage(WebGLContextId, WebGLSender<webrender_api::ImageKey>),
+    UpdateWebRenderImage(WebGLContextId, WebGLSender<ImageKey>),
+    /// 
+    DOMToTextureCommand(Option<WebGLContextId>, DOMToTextureCommand),
     /// Frees all resources and closes the thread.
     Exit,
 }
@@ -73,7 +75,7 @@ pub enum WebGLContextShareMode {
 /// Helper struct to send WebGLCommands to a specific WebGLContext.
 #[derive(Clone, Deserialize, HeapSizeOf, Serialize)]
 pub struct WebGLMsgSender {
-    ctx_id: WebGLContextId,
+    pub ctx_id: WebGLContextId,
     #[ignore_heap_size_of = "channels are hard"]
     sender: WebGLChan,
 }
@@ -113,10 +115,15 @@ impl WebGLMsgSender {
     }
 
     #[inline]
-    pub fn send_update_wr_image(&self, sender: WebGLSender<webrender_api::ImageKey>) -> WebGLSendResult {
+    pub fn send_update_wr_image(&self, sender: WebGLSender<ImageKey>) -> WebGLSendResult {
         self.sender.send(WebGLMsg::UpdateWebRenderImage(self.ctx_id, sender))
     }
+
+    pub fn send_dom_to_texture(&self, command: DOMToTextureCommand) -> WebGLSendResult {
+        self.sender.send(WebGLMsg::DOMToTextureCommand(Some(self.ctx_id), command))
+    }
 }
+
 
 /// WebGL Commands for a specific WebGLContext
 #[derive(Clone, Deserialize, Serialize)]
@@ -377,6 +384,18 @@ pub enum WebVRCommand {
 // Receives the texture id and size associated to the WebGLContext.
 pub trait WebVRRenderHandler: Send {
     fn handle(&mut self, command: WebVRCommand, texture: Option<(u32, Size2D<i32>)>);
+}
+
+
+// WebGL commands required to implement DOMToTexture feature.
+#[derive(Clone, Deserialize, Serialize)]
+pub enum DOMToTextureCommand {
+    /// Attaches a HTMLFrameElement to to a WebGLTexture. Used in DOMToTexture experimental API.
+    Attach(WebGLTextureId, DocumentId, PipelineId, Size2D<i32>),
+    Dettach(WebGLTextureId),
+    /// Synchronize the pose information to be used in the frame.
+    Lock(PipelineId, WebGLSender<u32>),
+    Unlock(PipelineId),
 }
 
 impl fmt::Debug for WebGLCommand {
