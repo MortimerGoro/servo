@@ -375,7 +375,9 @@ pub enum WebVRCommand {
     /// Synchronize the pose information to be used in the frame.
     SyncPoses(WebVRDeviceId, f64, f64, WebGLSender<Result<Vec<u8>, ()>>),
     /// Binds a framebuffer exposed by the VR device.
-    BindFramebuffer(WebVRDeviceId, WebGLFramebufferId),
+    BindFramebuffer(WebVRDeviceId, u32),
+    /// Unbinds a framebuffer exposed by the VR device.
+    UnbindFramebuffer(WebVRDeviceId, u32),
     /// Submit the frame to a VR device using the specified texture coordinates.
     SubmitFrame(WebVRDeviceId, [f32; 4], [f32; 4]),
     /// Stop presenting to a VR device

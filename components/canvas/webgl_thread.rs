@@ -536,8 +536,8 @@ impl<T: WebGLExternalImageApi> webrender::ExternalImageHandler for WebGLExternal
         webrender::ExternalImage {
             u0: 0.0,
             u1: size.width as f32,
-            v0: 0.0,
-            v1: size.height as f32,
+            v1: 0.0,
+            v0: size.height as f32,
             source: webrender::ExternalImageSource::NativeTexture(texture_id),
         }
 

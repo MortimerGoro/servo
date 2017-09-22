@@ -1440,10 +1440,18 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
                 //      current binding will remain untouched."
                 return self.webgl_error(InvalidOperation);
             } else {
+                if let Some(bound_framebuffer) = self.bound_framebuffer.get() {
+                    if bound_framebuffer.id() != framebuffer.id() {
+                        bound_framebuffer.unbind();
+                    }
+                }
                 framebuffer.bind(target);
                 self.bound_framebuffer.set(Some(framebuffer));
             }
         } else {
+            if let Some(bound_framebuffer) = self.bound_framebuffer.get() {
+                bound_framebuffer.unbind();
+            }
             // Bind the default framebuffer
             let cmd = WebGLCommand::BindFramebuffer(target, WebGLFramebufferBindingRequest::Default);
             self.send_command(cmd);

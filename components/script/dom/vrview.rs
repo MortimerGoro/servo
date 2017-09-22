@@ -6,11 +6,10 @@ use canvas_traits::webgl::{WebGLFramebufferId, WebGLMsg, WebGLMsgSender, WebVRCo
 use dom::bindings::codegen::Bindings::VRViewBinding;
 use dom::bindings::codegen::Bindings::VRViewBinding::{VRAttributes, VRViewMethods, VRViewport};
 use dom::bindings::js::{MutNullableJS, Root};
-use dom::bindings::num::Finite;
 use dom::bindings::reflector::{DomObject, Reflector, reflect_dom_object};
 use dom::globalscope::GlobalScope;
 use dom_struct::dom_struct;
-use dom::webglframebuffer::WebGLFramebuffer;
+use dom::webglframebuffer::{OpaqueFBOMessages, WebGLFramebuffer};
 use webvr_traits::WebVRFramebuffer;
 
 #[dom_struct]
@@ -51,16 +50,24 @@ impl VRViewMethods for VRView {
     #[allow(unsafe_code)]
     fn Framebuffer(&self) -> Root<WebGLFramebuffer> {
         self.webgl_fbo.or_init(|| {
-            let fbo_id = unsafe { 
-                WebGLFramebufferId::new(self.fbo.id)
+            let fbo_id = unsafe {
+                // Generate a dummy FBO id that avoids collisions with the real WebGL FBOs.
+                WebGLFramebufferId::new(self.device_id * 1000 + self.fbo.eye_index)
             };
             let bind_msg = WebGLMsg::WebVRCommand(self.renderer.ctx_id,
                                                   WebVRCommand::BindFramebuffer(self.device_id,
-                                                                                fbo_id));
+                                                                                self.fbo.eye_index));
+            let unbind_msg = Some(WebGLMsg::WebVRCommand(self.renderer.ctx_id,
+                                                         WebVRCommand::UnbindFramebuffer(self.device_id,
+                                                                                         self.fbo.eye_index)));
+            let opaque_messages = OpaqueFBOMessages {
+                bind_msg, unbind_msg
+            };
+
             WebGLFramebuffer::new_opaque(self.global().as_window(),
                                          self.renderer.clone(),
                                          fbo_id,
-                                         bind_msg)
+                                         opaque_messages)
         })
     }
 

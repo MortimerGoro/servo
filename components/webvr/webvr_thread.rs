@@ -311,6 +311,7 @@ impl WebVRThread {
 
 pub struct WebVRCompositor {
     pub display: *mut VRDisplay,
+    pub bound_eye_fbo: Option<u32>,
     pub direct_draw: bool,
 }
 
@@ -318,6 +319,7 @@ impl WebVRCompositor {
     pub fn new(display: *mut VRDisplay) -> Self {
         Self {
             display,
+            bound_eye_fbo: None,
             direct_draw: false,
         }
     }
@@ -368,17 +370,32 @@ impl webgl::WebVRRenderHandler for WebVRCompositorHandler {
                         (*compositor.display).sync_poses();
                         (*compositor.display).synced_frame_data(near, far).to_bytes()
                     };
+                    // FBOs exposed by the headset must be rebound every frame because
+                    // they may use double or tripple buffered swap_chains.
+                    if let Some(eye_index) = compositor.bound_eye_fbo {
+                        unsafe {
+                            (*compositor.display).bind_framebuffer(eye_index);
+                        }
+                    }
                     let _ = sender.send(Ok(pose));
                 } else {
                     let _ = sender.send(Err(()));
                 }
             }
-            webgl::WebVRCommand::BindFramebuffer(compositor_id, fbo_id) => {
+            webgl::WebVRCommand::BindFramebuffer(compositor_id, eye_index) => {
                 if let Some(compositor) = self.compositors.get_mut(&compositor_id) {
-                    unsafe {
-                        (*compositor.display).bind_framebuffer(fbo_id.get());
-                        compositor.direct_draw = true;
-                    }
+                    compositor.direct_draw = true;
+                    if compositor.bound_eye_fbo != Some(eye_index) {
+                        unsafe {
+                            (*compositor.display).bind_framebuffer(eye_index);
+                        }
+                        compositor.bound_eye_fbo = Some(eye_index);
+                    } 
+                }
+            }
+            webgl::WebVRCommand::UnbindFramebuffer(compositor_id, eye_index) => {
+                if let Some(compositor) = self.compositors.get_mut(&compositor_id) {
+                    compositor.bound_eye_fbo = None;
                 }
             }
             webgl::WebVRCommand::SubmitFrame(compositor_id, left_bounds, right_bounds) => {
@@ -392,14 +409,9 @@ impl webgl::WebVRRenderHandler for WebVRCompositorHandler {
                         };
                         unsafe {
                             if !compositor.direct_draw {
-                                // 
                                 (*compositor.display).render_layer(&layer);
-                            } else {
-                                println!("Yehaaaaaaaaaa");
                             }
                             (*compositor.display).submit_frame();
-                            // reset flag
-                            compositor.direct_draw = false;
                         }
                     }
                 }

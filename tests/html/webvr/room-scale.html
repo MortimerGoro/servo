@@ -273,10 +273,9 @@ found in the LICENSE file.
         debugGeom.drawCube(orientation, position, 0.2, [0, 0, 1, 1]);
       }
 
+      var testSingleBind = false;
       function onAnimationFrame (t) {
         stats.begin();
-
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         if (vrDisplay) {
           vrDisplay.requestAnimationFrame(onAnimationFrame);
@@ -294,7 +293,11 @@ found in the LICENSE file.
                 var multiview = view.getAttributes().multiview;
                 console.log("multiview: " + multiview);
                 var viewport = view.getViewport();
-                gl.bindFramebuffer(gl.FRAMEBUFFER, view.framebuffer);
+                if (!testSingleBind) {
+                  gl.bindFramebuffer(gl.FRAMEBUFFER, view.framebuffer);
+                  testSingleBind = true;
+                }
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
                 gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
                 gl.scissor(viewport.x, viewport.y, viewport.width, viewport.height);
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -316,6 +319,7 @@ found in the LICENSE file.
               gl.disable(gl.SCISSOR_TEST);
             }
             else {
+              gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
               gl.viewport(0, 0, webglCanvas.width * 0.5, webglCanvas.height);
               getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
               renderSceneView(frameData.leftProjectionMatrix, viewMat, frameData.pose);
@@ -329,6 +333,7 @@ found in the LICENSE file.
 
             vrDisplay.submitFrame();
           } else {
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             gl.viewport(0, 0, webglCanvas.width, webglCanvas.height);
             mat4.perspective(projectionMat, Math.PI*0.4, webglCanvas.width / webglCanvas.height, 0.1, 1024.0);
             getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
@@ -338,6 +343,7 @@ found in the LICENSE file.
         } else {
           window.requestAnimationFrame(onAnimationFrame);
 
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
           // No VRDisplay found.
           gl.viewport(0, 0, webglCanvas.width, webglCanvas.height);
           mat4.perspective(projectionMat, Math.PI*0.4, webglCanvas.width / webglCanvas.height, 0.1, 1024.0);
