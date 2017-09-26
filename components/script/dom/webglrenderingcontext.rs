@@ -3377,6 +3377,14 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             None => self.webgl_error(InvalidOperation),
         };
     }
+
+    fn TexImageCamera(&self, texture: &WebGLTexture) {
+        self.webgl_sender.send_msg(WebGLMsg::TexImageCamera(self.webgl_sender.id(), texture.id()));
+    }
+
+    fn TexImageCameraUpdate(&self, texture: &WebGLTexture) {
+        self.webgl_sender.send_msg(WebGLMsg::TexImageCameraUpdate(self.webgl_sender.id(), texture.id()));
+    }
 }
 
 pub trait LayoutCanvasWebGLRenderingContextHelpers {

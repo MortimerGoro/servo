@@ -1,14 +1,9 @@
 package com.mozilla.servo;
+
 import android.annotation.TargetApi;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.ActivityInfo;
-import android.content.pm.PackageInfo;
 import android.os.Bundle;
-import android.os.Environment;
-import android.os.Handler;
-import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.SurfaceView;
@@ -25,13 +20,11 @@ import org.json.JSONObject;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
-import java.lang.System;
 import java.util.Enumeration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -107,6 +100,10 @@ public class MainActivity extends android.app.NativeActivity {
         // Handle full screen preference
         if (mFullScreen) {
             addFullScreenListener();
+        }
+
+        if (!VRCamera.hasCameraPermission(this)) {
+            VRCamera.requestCameraPermission(this);
         }
     }
 
@@ -314,5 +311,15 @@ public class MainActivity extends android.app.NativeActivity {
         } catch (Exception e) {
             Log.e(LOGTAG, Log.getStackTraceString(e));
         }
+    }
+
+    private VRCamera camera;
+    private void createCamera(int textureId) {
+        camera = new VRCamera(textureId);
+        camera.resume();
+    }
+
+    private void updateCamera(int textureId) {
+        camera.update();
     }
 }

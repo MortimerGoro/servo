@@ -10,6 +10,7 @@ use gleam::gl;
 use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLContextMethods};
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
+use rust_webvr_api::jni_utils::JNIScope;
 use webrender;
 use webrender_api;
 
@@ -36,6 +37,7 @@ pub struct WebGLThread<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver
     webvr_compositor: Option<VR>,
     /// Generic observer that listens WebGLContext creation, resize or removal events.
     observer: OB,
+    jni_scope: Option<JNIScope>,
 }
 
 impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, OB> {
@@ -52,6 +54,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             next_webgl_id: 0,
             webvr_compositor,
             observer: observer,
+            jni_scope: None,
         }
     }
 
@@ -117,12 +120,59 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             WebGLMsg::UpdateWebRenderImage(ctx_id, sender) => {
                 self.handle_update_wr_image(ctx_id, sender);
             },
+            WebGLMsg::TexImageCamera(ctx_id, texture_id) => {
+                self.handle_camera(ctx_id, texture_id);
+            },
+            WebGLMsg::TexImageCameraUpdate(ctx_id, texture_id) => {
+                self.handle_camera_update(ctx_id, texture_id);
+            },
             WebGLMsg::Exit => {
                 return true;
             }
         }
 
         false
+    }
+
+    #[allow(unsafe_code)]
+    fn handle_camera(&mut self, ctx_id: WebGLContextId, texture_id: WebGLTextureId) {
+        let ctx = Self::make_current_if_needed(ctx_id, &self.contexts, &mut self.bound_context_id)
+                    .expect("WebGLContext not found in a WebGLMsg::TexImageCamera message");
+        let gl = ctx.gl();
+        gl.bind_texture(gl::TEXTURE_EXTERNAL_OES, texture_id.get());
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        unsafe {
+            let jni_scope = JNIScope::attach().unwrap();
+            {
+                let jni = jni_scope.jni();
+                let env = jni_scope.env;
+                let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
+                let method = jni_scope.get_method(java_class, "createCamera", "(I)V", false);
+                (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
+                (jni.DeleteLocalRef)(env, java_class);
+            }
+            self.jni_scope = Some(jni_scope);
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn handle_camera_update(&mut self, ctx_id: WebGLContextId, texture_id: WebGLTextureId) {
+        let ctx = Self::make_current_if_needed(ctx_id, &self.contexts, &mut self.bound_context_id)
+                    .expect("WebGLContext not found in a WebGLMsg::TexImageCameraUpdate message");
+        let gl = ctx.gl();
+        gl.bind_texture(gl::TEXTURE_EXTERNAL_OES, texture_id.get());
+        unsafe {
+            let jni_scope = self.jni_scope.as_ref().unwrap();
+            let env = jni_scope.env;
+            let jni = jni_scope.jni();
+            let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
+            let method = jni_scope.get_method(java_class, "updateCamera", "(I)V", false);
+            (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
+            (jni.DeleteLocalRef)(env, java_class);
+        }
     }
 
     /// Handles a WebGLCommand for a specific WebGLContext
@@ -1208,5 +1258,39 @@ impl WebGLImpl {
     fn compile_shader(gl: &gl::Gl, shader_id: WebGLShaderId, source: String) {
         gl.shader_source(shader_id.get(), &[source.as_bytes()]);
         gl.compile_shader(shader_id.get());
+    }
+
+    #[allow(unsafe_code)]
+    fn tex_image_camera(gl: &gl::Gl, texture_id: WebGLTextureId) {
+        gl.bind_texture(gl::TEXTURE_EXTERNAL_OES, texture_id.get());
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        unsafe {
+            if let Ok(jni_scope) = JNIScope::attach() {
+                let jni = jni_scope.jni();
+                let env = jni_scope.env;
+                let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
+                let method = jni_scope.get_method(java_class, "createCamera", "(I)V", false);
+                (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
+                (jni.DeleteLocalRef)(env, java_class);
+            }
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn tex_image_camera_update(gl: &gl::Gl, texture_id: WebGLTextureId) {
+        gl.bind_texture(gl::TEXTURE_EXTERNAL_OES, texture_id.get());
+        unsafe {
+            if let Ok(jni_scope) = JNIScope::attach() {
+                let jni = jni_scope.jni();
+                let env = jni_scope.env;
+                let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
+                let method = jni_scope.get_method(java_class, "updateCamera", "(I)V", false);
+                (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
+                (jni.DeleteLocalRef)(env, java_class);
+            }
+        }
     }
 }

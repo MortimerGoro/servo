@@ -48,6 +48,8 @@ pub enum WebGLMsg {
     /// Creates or updates the image keys required for WebRender.
     UpdateWebRenderImage(WebGLContextId, WebGLSender<webrender_api::ImageKey>),
     /// Frees all resources and closes the thread.
+    TexImageCamera(WebGLContextId, WebGLTextureId),
+    TexImageCameraUpdate(WebGLContextId, WebGLTextureId),
     Exit,
 }
 
@@ -86,6 +88,10 @@ impl WebGLMsgSender {
         }
     }
 
+    pub fn id(&self) -> WebGLContextId {
+        self.ctx_id
+    }
+
     /// Send a WebGLCommand message
     #[inline]
     pub fn send(&self, command: WebGLCommand) -> WebGLSendResult {
@@ -116,6 +122,11 @@ impl WebGLMsgSender {
     pub fn send_update_wr_image(&self, sender: WebGLSender<webrender_api::ImageKey>) -> WebGLSendResult {
         self.sender.send(WebGLMsg::UpdateWebRenderImage(self.ctx_id, sender))
     }
+
+    pub fn send_msg(&self, msg: WebGLMsg) -> WebGLSendResult {
+        self.sender.send(msg)
+    }
+
 }
 
 /// WebGL Commands for a specific WebGLContext

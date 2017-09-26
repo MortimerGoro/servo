@@ -108,6 +108,7 @@ impl WebGLShader {
             let mut params = BuiltInResources::default();
             params.FragmentPrecisionHigh = 1;
             params.OES_standard_derivatives = ext.is_enabled::<OESStandardDerivatives>() as i32;
+            params.OES_EGL_image_external = 1;
             let validator = ShaderValidator::for_webgl(self.gl_type,
                                                        SHADER_OUTPUT_FORMAT,
                                                        &params).unwrap();
