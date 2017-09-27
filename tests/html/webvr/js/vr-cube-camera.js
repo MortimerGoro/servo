@@ -125,7 +125,8 @@ window.VRCubeCamera = (function () {
       if (gl.texImageCameraUpdate) {
         gl.activeTexture(gl.TEXTURE1);
         gl.uniform1i(this.program.uniform.diffuse, 1);
-        gl.texImageCameraUpdate(this.texture);
+        var timestamp = gl.texImageCameraUpdate(this.texture);
+        //console.log("camera timestamp: " + timestamp);
         gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
         gl.activeTexture(gl.TEXTURE0);
         gl.clear(gl.DEPTH_BUFFER_BIT);

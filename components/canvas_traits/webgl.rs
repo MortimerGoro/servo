@@ -49,7 +49,7 @@ pub enum WebGLMsg {
     UpdateWebRenderImage(WebGLContextId, WebGLSender<webrender_api::ImageKey>),
     /// Frees all resources and closes the thread.
     TexImageCamera(WebGLContextId, WebGLTextureId),
-    TexImageCameraUpdate(WebGLContextId, WebGLTextureId),
+    TexImageCameraUpdate(WebGLContextId, WebGLTextureId, Option<WebGLSender<i64>>),
     Exit,
 }
 

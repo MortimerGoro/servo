@@ -656,7 +656,7 @@ interface WebGLRenderingContextBase
                     GLenum format, GLenum type, TexImageSource? source); // May throw DOMException
 
     void texImageCamera(WebGLTexture texture);
-    void texImageCameraUpdate(WebGLTexture texture);
+    long long texImageCameraUpdate(WebGLTexture texture);
 
     void texParameterf(GLenum target, GLenum pname, GLfloat param);
     void texParameteri(GLenum target, GLenum pname, GLint param);

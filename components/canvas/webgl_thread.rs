@@ -126,8 +126,8 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             WebGLMsg::TexImageCamera(ctx_id, texture_id) => {
                 self.handle_camera(ctx_id, texture_id);
             },
-            WebGLMsg::TexImageCameraUpdate(ctx_id, texture_id) => {
-                self.handle_camera_update(ctx_id, texture_id);
+            WebGLMsg::TexImageCameraUpdate(ctx_id, texture_id, sender) => {
+                self.handle_camera_update(ctx_id, texture_id, sender);
             },
             WebGLMsg::Exit => {
                 return true;
@@ -154,7 +154,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
                 let env = jni_scope.env;
                 let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
                 let method = jni_scope.get_method(java_class, "createCamera", "(I)V", false);
-                let update_method = jni_scope.get_method(java_class, "updateCamera", "(I)V", false);
+                let update_method = jni_scope.get_method(java_class, "updateCamera", "(I)J", false);
                 (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
                 (jni.DeleteLocalRef)(env, java_class);
                 self.jni_method = Some(update_method);
@@ -164,7 +164,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
     }
 
     #[allow(unsafe_code)]
-    fn handle_camera_update(&mut self, ctx_id: WebGLContextId, texture_id: WebGLTextureId) {
+    fn handle_camera_update(&mut self, ctx_id: WebGLContextId, texture_id: WebGLTextureId, sender: Option<WebGLSender<i64>>){
         let ctx = Self::make_current_if_needed(ctx_id, &self.contexts, &mut self.bound_context_id)
                     .expect("WebGLContext not found in a WebGLMsg::TexImageCameraUpdate message");
         let gl = ctx.gl();
@@ -173,7 +173,10 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             let jni_scope = self.jni_scope.as_ref().unwrap();
             let env = jni_scope.env;
             let jni = jni_scope.jni();
-            (jni.CallVoidMethod)(env, jni_scope.activity, self.jni_method.unwrap(), texture_id.get() as i32);
+            let ts = (jni.CallLongMethod)(env, jni_scope.activity, self.jni_method.unwrap(), texture_id.get() as i32);
+            if let Some(sender) = sender {
+                sender.send(ts).unwrap();
+            }
         }
     }
 
@@ -1260,39 +1263,5 @@ impl WebGLImpl {
     fn compile_shader(gl: &gl::Gl, shader_id: WebGLShaderId, source: String) {
         gl.shader_source(shader_id.get(), &[source.as_bytes()]);
         gl.compile_shader(shader_id.get());
-    }
-
-    #[allow(unsafe_code)]
-    fn tex_image_camera(gl: &gl::Gl, texture_id: WebGLTextureId) {
-        gl.bind_texture(gl::TEXTURE_EXTERNAL_OES, texture_id.get());
-        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl.tex_parameter_i(gl::TEXTURE_EXTERNAL_OES, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-        unsafe {
-            if let Ok(jni_scope) = JNIScope::attach() {
-                let jni = jni_scope.jni();
-                let env = jni_scope.env;
-                let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
-                let method = jni_scope.get_method(java_class, "createCamera", "(I)V", false);
-                (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
-                (jni.DeleteLocalRef)(env, java_class);
-            }
-        }
-    }
-
-    #[allow(unsafe_code)]
-    fn tex_image_camera_update(gl: &gl::Gl, texture_id: WebGLTextureId) {
-        gl.bind_texture(gl::TEXTURE_EXTERNAL_OES, texture_id.get());
-        unsafe {
-            if let Ok(jni_scope) = JNIScope::attach() {
-                let jni = jni_scope.jni();
-                let env = jni_scope.env;
-                let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
-                let method = jni_scope.get_method(java_class, "updateCamera", "(I)V", false);
-                (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
-                (jni.DeleteLocalRef)(env, java_class);
-            }
-        }
     }
 }

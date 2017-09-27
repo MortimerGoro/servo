@@ -319,7 +319,7 @@ public class MainActivity extends android.app.NativeActivity {
         camera.resume();
     }
 
-    private void updateCamera(int textureId) {
-        camera.update();
+    private long updateCamera(int textureId) {
+        return camera.update();
     }
 }

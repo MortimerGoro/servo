@@ -3382,8 +3382,10 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
         self.webgl_sender.send_msg(WebGLMsg::TexImageCamera(self.webgl_sender.id(), texture.id()));
     }
 
-    fn TexImageCameraUpdate(&self, texture: &WebGLTexture) {
-        self.webgl_sender.send_msg(WebGLMsg::TexImageCameraUpdate(self.webgl_sender.id(), texture.id()));
+    fn TexImageCameraUpdate(&self, texture: &WebGLTexture) -> i64 {
+        let (sender, receiver) = webgl_channel().unwrap();
+        self.webgl_sender.send_msg(WebGLMsg::TexImageCameraUpdate(self.webgl_sender.id(), texture.id(), Some(sender)));
+        receiver.recv().unwrap()
     }
 }
 

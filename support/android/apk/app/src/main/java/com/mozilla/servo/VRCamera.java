@@ -77,12 +77,14 @@ public class VRCamera {
         closeCamera();
     }
 
-    public void update() {
+    public long update() {
         if (!mPaused) {
             // Update the latest camera frame.
             // If there isn't anything new, it reuses whatever was there before.
             mSurfaceTexture.updateTexImage();
+            return mSurfaceTexture.getTimestamp();
         }
+        return 0;
     }
 
     private boolean checkCameraHardware(Context context) {
