@@ -273,9 +273,6 @@ found in the LICENSE file.
       function onAnimationFrame (t) {
         stats.begin();
 
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        cubeCamera.render();
-
         if (vrDisplay) {
           vrDisplay.requestAnimationFrame(onAnimationFrame);
 
@@ -284,19 +281,23 @@ found in the LICENSE file.
           if (vrDisplay.isPresenting) {
             gl.viewport(0, 0, webglCanvas.width * 0.5, webglCanvas.height);
             getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
+            cubeCamera.render(frameData.leftProjectionMatrix);
             renderSceneView(frameData.leftProjectionMatrix, viewMat, frameData.pose);
-
             gl.viewport(webglCanvas.width * 0.5, 0, webglCanvas.width * 0.5, webglCanvas.height);
             getStandingViewMatrix(viewMat, frameData.rightViewMatrix);
+            cubeCamera.render(frameData.rightProjectionMatrix);
             renderSceneView(frameData.rightProjectionMatrix, viewMat, frameData.pose);
-
+            gl.flush();
             vrDisplay.submitFrame();
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
           } else {
             gl.viewport(0, 0, webglCanvas.width, webglCanvas.height);
             mat4.perspective(projectionMat, Math.PI*0.4, webglCanvas.width / webglCanvas.height, 0.1, 1024.0);
             getStandingViewMatrix(viewMat, frameData.leftViewMatrix);
+            cubeCamera.render(projectionMat);
             renderSceneView(projectionMat, viewMat, frameData.pose);
             stats.renderOrtho();
+            gl.flush();
           }
         } else {
           window.requestAnimationFrame(onAnimationFrame);
@@ -309,10 +310,11 @@ found in the LICENSE file.
           cubeIsland.render(projectionMat, viewMat, stats);
 
           stats.renderOrtho();
+          cubeCamera.render(projectionMat);
 
           //cubeCamera.render();
+          
         }
-
         stats.end();
       }
       })();

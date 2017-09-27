@@ -131,6 +131,7 @@ window.VRCubeIsland = (function () {
 
     // Appends a cube with the given centerpoint and size.
     function appendCube (x, y, z, size) {
+      return;
       var halfSize = size * 0.5;
       appendBox(x - halfSize, y - halfSize, z - halfSize,
                 x + halfSize, y + halfSize, z + halfSize);

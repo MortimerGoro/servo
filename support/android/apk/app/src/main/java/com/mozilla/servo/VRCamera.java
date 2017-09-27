@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.Camera.Parameters;
@@ -12,18 +13,16 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class VRCamera {
     private static String TAG = "VRCamera";
     private SurfaceTexture mSurfaceTexture;
     private boolean mPaused = false;
     private Camera camera;
-    private boolean cameraSetUpStatus;
-    private int fpsMode = -1;
-    private boolean isCameraOpen = false;
 
     public VRCamera(int textureId) {
-        isCameraOpen = true;
         mSurfaceTexture = new SurfaceTexture(textureId);
     }
 
@@ -39,9 +38,12 @@ public class VRCamera {
                 android.util.Log.d(TAG, "Camera not available or is in use");
                 return false;
             }
-            camera.startPreview();
+            int w = 1920;
+            int h = 1080;
+            mSurfaceTexture.setDefaultBufferSize(w, h);
+            setupCameraParameters(w, h, FPSMode.FPS60);
             camera.setPreviewTexture(mSurfaceTexture);
-            isCameraOpen = true;
+            camera.startPreview();
         } catch (Exception exception) {
             android.util.Log.d(TAG, "Camera not available or is in use");
             return false;
@@ -59,17 +61,12 @@ public class VRCamera {
         camera.stopPreview();
         camera.release();
         camera = null;
-        isCameraOpen = false;
     }
 
     public void resume() {
-        if (openCamera()) {
-            //restore fpsmode
-            setUpCameraForVrMode(1);
-        }
+        openCamera();
         mPaused = false;
     }
-
 
     public void pause() {
         mPaused = true;
@@ -93,74 +90,57 @@ public class VRCamera {
                 PackageManager.FEATURE_CAMERA);
     }
 
-    /**
-     * Configure high fps settings in the camera for VR mode
-     *
-     * @param fpsMode integer indicating the desired fps: 0 means 30 fps, 1 means 60
-     *                fps, and 2 means 120 fps. Any other value is invalid.
-     * @return A boolean indicating the status of the method call. It may be false due
-     * to multiple reasons including: 1) supplying invalid fpsMode as the input
-     * parameter, 2) VR mode not supported.
-     */
-    public boolean setUpCameraForVrMode(final int fpsMode) {
-        cameraSetUpStatus = false;
-        this.fpsMode = fpsMode;
+    private enum FPSMode {
+        FPS30,
+        FPS60,
+        FPS120,
+    }
 
-        if (!isCameraOpen) {
-            Log.e(TAG, "Camera is not open");
-            return false;
-        }
-        if (fpsMode < 0 || fpsMode > 2) {
-            //Log.e(TAG,  "Invalid fpsMode: %d. It can only take values 0, 1, or 2.", fpsMode);
-        } else {
-            Parameters params = camera.getParameters();
+    // Specific optimizations supported for some VR devices (e.g. Gear VR)
+    private void setupCameraParameters(int w, int h, FPSMode fpsMode) {
+        Parameters params = camera.getParameters();
+        //List<Camera.Size> sizes = camera.getParameters().getSupportedVideoSizes();
+        params.setPreviewSize(w, h);
+        // We don't want to record
+        params.setRecordingHint(false);
+        // for auto focus
+        params.setFocusMode(Parameters.FOCUS_MODE_INFINITY);
+        /*ArrayList<Camera.Area> areas = new ArrayList<>();
+        int focusW = 200;
+        int focusH = 200;
+        areas.add(new Camera.Area(new Rect(w/2 - focusW/2, h/2 - focusH/2, w/2 + focusW/2, h/2 + focusH/2), 1000));
+        params.setFocusAreas(areas);
+        params.setMeteringAreas(areas);*/
+        params.setVideoStabilization(false);
 
-            // check if the device supports vr mode preview
-            if ("true".equalsIgnoreCase(params.get("vrmode-supported"))) {
+        params.set("fast-fps-mode", fpsMode.ordinal());
 
-                Log.v(TAG, "VR Mode supported!");
-
-                // set vr mode
-                params.set("vrmode", 1);
-
-                // true if the apps intend to record videos using
-                // MediaRecorder
-                params.setRecordingHint(true);
-
-                // set preview size
-                // params.setPreviewSize(640, 480);
-
-                // set fast-fps-mode: 0 for 30fps, 1 for 60 fps,
-                // 2 for 120 fps
-                params.set("fast-fps-mode", fpsMode);
-
-                switch (fpsMode) {
-                    case 0: // 30 fps
-                        params.setPreviewFpsRange(30000, 30000);
-                        break;
-                    case 1: // 60 fps
-                        params.setPreviewFpsRange(60000, 60000);
-                        break;
-                    case 2: // 120 fps
-                        params.setPreviewFpsRange(120000, 120000);
-                        break;
-                    default:
-                }
-
-                // for auto focus
-                params.set("focus-mode", "continuous-video");
-
-                params.setVideoStabilization(false);
-                if ("true".equalsIgnoreCase(params.get("ois-supported"))) {
-                    params.set("ois", "center");
-                }
-
-                camera.setParameters(params);
-                cameraSetUpStatus = true;
-            }
+        switch (fpsMode) {
+            case FPS30: // 30 fps
+                params.setPreviewFpsRange(30000, 30000);
+                break;
+            case FPS60: // 60 fps
+                params.setPreviewFpsRange(60000, 60000);
+                break;
+            case FPS120: // 120 fps
+                params.setPreviewFpsRange(120000, 120000);
+                break;
+            default:
         }
 
-        return cameraSetUpStatus;
+        // Optical image stabilization
+        if ("true".equalsIgnoreCase(params.get("ois-supported"))) {
+            params.set("ois", "center");
+        }
+
+        // check if the device supports vr mode preview
+        if ("true".equalsIgnoreCase(params.get("vrmode-supported"))) {
+            Log.v(TAG, "VR Mode supported!");
+            // set vr mode
+            params.set("vrmode", 1);
+        }
+
+        camera.setParameters(params);
     }
 
     private static final String CAMERA_PERMISSION = Manifest.permission.CAMERA;
@@ -175,7 +155,5 @@ public class VRCamera {
         ActivityCompat.requestPermissions(activity, new String[]{CAMERA_PERMISSION},
                 CAMERA_PERMISSION_CODE);
     }
-
-
 
 }

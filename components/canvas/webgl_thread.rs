@@ -11,6 +11,7 @@ use offscreen_gl_context::{GLContext, GLContextAttributes, GLLimits, NativeGLCon
 use std::thread;
 use super::gl_context::{GLContextFactory, GLContextWrapper};
 use rust_webvr_api::jni_utils::JNIScope;
+use rust_webvr_api::android_injected_glue::ffi as ndk;
 use webrender;
 use webrender_api;
 
@@ -38,6 +39,7 @@ pub struct WebGLThread<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver
     /// Generic observer that listens WebGLContext creation, resize or removal events.
     observer: OB,
     jni_scope: Option<JNIScope>,
+    jni_method: Option<ndk::jmethodID>,
 }
 
 impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, OB> {
@@ -55,6 +57,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             webvr_compositor,
             observer: observer,
             jni_scope: None,
+            jni_method: None,
         }
     }
 
@@ -151,8 +154,10 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
                 let env = jni_scope.env;
                 let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
                 let method = jni_scope.get_method(java_class, "createCamera", "(I)V", false);
+                let update_method = jni_scope.get_method(java_class, "updateCamera", "(I)V", false);
                 (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
                 (jni.DeleteLocalRef)(env, java_class);
+                self.jni_method = Some(update_method);
             }
             self.jni_scope = Some(jni_scope);
         }
@@ -168,10 +173,7 @@ impl<VR: WebVRRenderHandler + 'static, OB: WebGLThreadObserver> WebGLThread<VR, 
             let jni_scope = self.jni_scope.as_ref().unwrap();
             let env = jni_scope.env;
             let jni = jni_scope.jni();
-            let java_class = jni_scope.find_class("com/mozilla/servo/MainActivity").unwrap();
-            let method = jni_scope.get_method(java_class, "updateCamera", "(I)V", false);
-            (jni.CallVoidMethod)(env, jni_scope.activity, method, texture_id.get() as i32);
-            (jni.DeleteLocalRef)(env, java_class);
+            (jni.CallVoidMethod)(env, jni_scope.activity, self.jni_method.unwrap(), texture_id.get() as i32);
         }
     }
 

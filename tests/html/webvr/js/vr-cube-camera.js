@@ -78,19 +78,23 @@ window.VRCubeCamera = (function () {
   
       var vertices = [];
       var indices = [];
+
+      var z = 100;
+      var w = 150;
+      var h = w * height/width;
   
       // Build a single quad.
       function appendQuad (left, bottom, right, top) {
         // Bottom
         indices.push(0, 1, 2, 3, 2, 1);
   
-        vertices.push(left, bottom, 0.0,  0.0, 0.0);
-        vertices.push(right, bottom, 0.0, 1.0, 0.0);
-        vertices.push(left, top, 0.0, 0.0, 1.0);
-        vertices.push(right, top, 0.0, 1.0, 1.0);
+        vertices.push(left, bottom, -z,  0.0, 1.0);
+        vertices.push(right, bottom, -z, 1.0, 1.0);
+        vertices.push(left, top, -z, 0.0, 0.0);
+        vertices.push(right, top, -z, 1.0, 0.0);
       }
 
-      appendQuad(-1.0, -1.0, 1.0, 1.0);
+      appendQuad(-w, -h, w, h);
   
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
@@ -101,13 +105,13 @@ window.VRCubeCamera = (function () {
       this.indexCount = indices.length;
     };
   
-    CubeCamera.prototype.render = function () {
+    CubeCamera.prototype.render = function (projection) {
       var gl = this.gl;
       var program = this.program;
   
       program.use();
   
-      gl.uniformMatrix4fv(program.uniform.projectionMat, false, this.orthoProjMatrix);
+      gl.uniformMatrix4fv(program.uniform.projectionMat, false, projection);
       gl.uniformMatrix4fv(program.uniform.modelViewMat, false, this.orthoViewMatrix);
   
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
@@ -118,19 +122,23 @@ window.VRCubeCamera = (function () {
   
       gl.vertexAttribPointer(program.attrib.position, 3, gl.FLOAT, false, 20, 0);
       gl.vertexAttribPointer(program.attrib.texCoord, 2, gl.FLOAT, false, 20, 12);
-  
-      gl.activeTexture(gl.TEXTURE2);
-      gl.uniform1i(this.program.uniform.diffuse, 2);
-
-
       if (gl.texImageCameraUpdate) {
+        gl.activeTexture(gl.TEXTURE1);
+        gl.uniform1i(this.program.uniform.diffuse, 1);
         gl.texImageCameraUpdate(this.texture);
+        gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
       }
       else {
+        gl.activeTexture(gl.TEXTURE0);
+        gl.uniform1i(this.program.uniform.diffuse, 0);
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
       }
-  
-      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+
+      gl.flush();
+
     };
   
     return CubeCamera;
