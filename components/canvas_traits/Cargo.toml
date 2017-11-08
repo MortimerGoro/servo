@@ -21,3 +21,4 @@ offscreen_gl_context = { version = "0.12", features = ["serde"] }
 serde = "1.0"
 servo_config = {path = "../config"}
 webrender_api = {git = "https://github.com/servo/webrender", features = ["ipc"]}
+webvr_traits = {path = "../webvr_traits"}

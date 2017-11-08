@@ -316,6 +316,7 @@ dependencies = [
  "serde 1.0.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo_config 0.0.1",
  "webrender_api 0.53.1 (git+https://github.com/servo/webrender)",
+ "webvr_traits 0.0.1",
 ]
 
 [[package]]

@@ -219,7 +219,7 @@ impl WebVRThread {
     }
 
     fn handle_create_compositor(&mut self, display_id: u32) {
-        let compositor = self.service.get_display(display_id).map(|d| WebVRCompositor(d.as_ptr()));
+        let compositor = self.service.get_display(display_id).map(|d| WebVRCompositor::new(d.as_ptr()));
         self.vr_compositor_chan.send(compositor).unwrap();
     }
 
@@ -306,7 +306,22 @@ impl WebVRThread {
 ///    * WebVRThread and its VRDisplays are destroyed after all tabs are dropped and the browser is about to exit.
 ///      WebVRThread is closed using the Exit message.
 
-pub struct WebVRCompositor(*mut VRDisplay);
+pub struct WebVRCompositor {
+    pub display: *mut VRDisplay,
+    pub bound_eye_fbo: Option<u32>,
+    pub direct_draw: bool,
+}
+
+impl WebVRCompositor {
+    pub fn new(display: *mut VRDisplay) -> Self {
+        Self {
+            display,
+            bound_eye_fbo: None,
+            direct_draw: false,
+        }
+    }
+}
+
 pub struct WebVRCompositorHandler {
     compositors: HashMap<webgl::WebVRDeviceId, WebVRCompositor>,
     webvr_thread_receiver: Receiver<Option<WebVRCompositor>>,
@@ -335,22 +350,53 @@ impl webgl::WebVRRenderHandler for WebVRCompositorHandler {
     #[allow(unsafe_code)]
     fn handle(&mut self, cmd: webgl::WebVRCommand, texture: Option<(u32, Size2D<i32>)>) {
         match cmd {
-            webgl::WebVRCommand::Create(compositor_id) => {
+            webgl::WebVRCommand::Create(compositor_id, attributes, sender) => {
                 self.create_compositor(compositor_id);
+                // TODO handle error
+                if let Some(compositor) = self.compositors.get(&compositor_id) {
+                    let fbos = unsafe {
+                        (*compositor.display).start_present(Some(attributes));
+                        (*compositor.display).get_framebuffers()
+                    };
+                    sender.send(fbos).unwrap();
+                }
             }
             webgl::WebVRCommand::SyncPoses(compositor_id, near, far, sender) => {
                 if let Some(compositor) = self.compositors.get(&compositor_id) {
                     let pose = unsafe {
-                        (*compositor.0).sync_poses();
-                        (*compositor.0).synced_frame_data(near, far).to_bytes()
+                        (*compositor.display).sync_poses();
+                        (*compositor.display).synced_frame_data(near, far).to_bytes()
                     };
+                    // FBOs exposed by the headset must be rebound every frame because
+                    // they may use double or tripple buffered swap_chains.
+                    if let Some(eye_index) = compositor.bound_eye_fbo {
+                        unsafe {
+                            (*compositor.display).bind_framebuffer(eye_index);
+                        }
+                    }
                     let _ = sender.send(Ok(pose));
                 } else {
                     let _ = sender.send(Err(()));
                 }
             }
+            webgl::WebVRCommand::BindFramebuffer(compositor_id, eye_index) => {
+                if let Some(compositor) = self.compositors.get_mut(&compositor_id) {
+                    compositor.direct_draw = true;
+                    if compositor.bound_eye_fbo != Some(eye_index) {
+                        unsafe {
+                            (*compositor.display).bind_framebuffer(eye_index);
+                        }
+                        compositor.bound_eye_fbo = Some(eye_index);
+                    } 
+                }
+            }
+            webgl::WebVRCommand::UnbindFramebuffer(compositor_id, eye_index) => {
+                if let Some(compositor) = self.compositors.get_mut(&compositor_id) {
+                    compositor.bound_eye_fbo = None;
+                }
+            }
             webgl::WebVRCommand::SubmitFrame(compositor_id, left_bounds, right_bounds) => {
-                if let Some(compositor) = self.compositors.get(&compositor_id) {
+                if let Some(compositor) = self.compositors.get_mut(&compositor_id) {
                     if let Some((texture_id, size)) = texture {
                         let layer = VRLayer {
                             texture_id: texture_id,
@@ -359,8 +405,10 @@ impl webgl::WebVRRenderHandler for WebVRCompositorHandler {
                             texture_size: Some((size.width as u32, size.height as u32))
                         };
                         unsafe {
-                            (*compositor.0).render_layer(&layer);
-                            (*compositor.0).submit_frame();
+                            if !compositor.direct_draw {
+                                (*compositor.display).render_layer(&layer);
+                            }
+                            (*compositor.display).submit_frame();
                         }
                     }
                 }

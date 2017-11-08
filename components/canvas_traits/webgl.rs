@@ -7,6 +7,7 @@ use nonzero::NonZero;
 use offscreen_gl_context::{GLContextAttributes, GLLimits};
 use std::fmt;
 use webrender_api::{DocumentId, ImageKey, PipelineId};
+use webvr_traits::{WebVRFramebuffer, WebVRFramebufferAttributes};
 
 /// Sender type used in WebGLCommands.
 pub use ::webgl_channel::WebGLSender;
@@ -109,6 +110,12 @@ impl WebGLMsgSender {
     #[inline]
     pub fn send(&self, command: WebGLCommand) -> WebGLSendResult {
         self.sender.send(WebGLMsg::WebGLCommand(self.ctx_id, command))
+    }
+
+    /// Send a generic WebGLMsg command
+    #[inline]
+    pub fn send_msg(&self, msg: WebGLMsg) -> WebGLSendResult {
+        self.sender.send(msg)
     }
 
     /// Send a WebVRCommand message
@@ -384,9 +391,13 @@ pub type WebVRDeviceId = u32;
 #[derive(Clone, Deserialize, Serialize)]
 pub enum WebVRCommand {
     /// Start presenting to a VR device.
-    Create(WebVRDeviceId),
+    Create(WebVRDeviceId, WebVRFramebufferAttributes, WebGLSender<Vec<WebVRFramebuffer>>),
     /// Synchronize the pose information to be used in the frame.
     SyncPoses(WebVRDeviceId, f64, f64, WebGLSender<Result<Vec<u8>, ()>>),
+    /// Binds a framebuffer exposed by the VR device.
+    BindFramebuffer(WebVRDeviceId, u32),
+    /// Unbinds a framebuffer exposed by the VR device.
+    UnbindFramebuffer(WebVRDeviceId, u32),
     /// Submit the frame to a VR device using the specified texture coordinates.
     SubmitFrame(WebVRDeviceId, [f32; 4], [f32; 4]),
     /// Stop presenting to a VR device

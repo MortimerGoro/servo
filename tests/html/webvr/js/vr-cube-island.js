@@ -25,6 +25,27 @@ window.VRCubeIsland = (function () {
     "}",
   ].join("\n");
 
+  var cubeIslandVSMultiview = [
+    "#version 300 es",
+    "#extension GL_OVR_multiview2 : require",
+    "#define VIEW_ID gl_ViewID_OVR",
+    "layout(num_views=2) in;",
+
+    "uniform mat4 leftProjectionMat;",
+    "uniform mat4 leftModelViewMat;",
+    "uniform mat4 rightProjectionMat;",
+    "uniform mat4 rightModelViewMat;",
+    "in vec3 position;",
+    "in vec2 texCoord;",
+    "out vec2 vTexCoord;",
+
+    "void main() {",
+    "  vTexCoord = texCoord;",
+    "  mat4 m = VIEW_ID == 0u ? (leftProjectionMat * leftModelViewMat) : (rightProjectionMat * rightModelViewMat);",
+    "  gl_Position = m * vec4( position, 1.0 );",
+    "}",
+  ].join("\n");
+
   var cubeIslandFS = [
     "precision mediump float;",
     "uniform sampler2D diffuse;",
@@ -34,6 +55,19 @@ window.VRCubeIsland = (function () {
     "  gl_FragColor = texture2D(diffuse, vTexCoord);",
     "}",
   ].join("\n");
+
+  var cubeIslandFSMultiview = [
+    "#version 300 es",
+    "precision mediump float;",
+    "uniform sampler2D diffuse;",
+    "in vec2 vTexCoord;",
+    "out vec4 color;",
+
+    "void main() {",
+    "  color = texture(diffuse, vTexCoord);",
+    "}",
+  ].join("\n");
+
 
   var CubeIsland = function (gl, texture, width, depth) {
     this.gl = gl;
@@ -50,6 +84,15 @@ window.VRCubeIsland = (function () {
       texCoord: 1
     });
     this.program.link();
+
+    this.program_multiview = new WGLUProgram(gl);
+    this.program_multiview.attachShaderSource(cubeIslandVSMultiview, gl.VERTEX_SHADER);
+    this.program_multiview.attachShaderSource(cubeIslandFSMultiview, gl.FRAGMENT_SHADER);
+    this.program_multiview.bindAttribLocation({
+      position: 0,
+      texCoord: 1
+    });
+    this.program_multiview.link();
 
     this.vertBuffer = gl.createBuffer();
     this.indexBuffer = gl.createBuffer();
@@ -171,14 +214,25 @@ window.VRCubeIsland = (function () {
     this.indexCount = cubeIndices.length;
   };
 
-  CubeIsland.prototype.render = function (projectionMat, modelViewMat, stats) {
+  CubeIsland.prototype.render = function (projectionMat, modelViewMat, stats, multiview) {
     var gl = this.gl;
     var program = this.program;
 
-    program.use();
+    if (multiview) {
+      console.log("render multiview");
+      program = this.program_multiview;
+      program.use();
+      gl.uniformMatrix4fv(program.uniform.leftProjectionMat, false, projectionMat[0]);
+      gl.uniformMatrix4fv(program.uniform.rightProjectionMat, false, projectionMat[1]);
+      gl.uniformMatrix4fv(program.uniform.leftModelViewMat, false, modelViewMat[0]);
+      gl.uniformMatrix4fv(program.uniform.rightModelViewMat, false, modelViewMat[1]);
+    }
+    else {
+      program.use();
+      gl.uniformMatrix4fv(program.uniform.projectionMat, false, projectionMat);
+      gl.uniformMatrix4fv(program.uniform.modelViewMat, false, modelViewMat);
+    }
 
-    gl.uniformMatrix4fv(program.uniform.projectionMat, false, projectionMat);
-    gl.uniformMatrix4fv(program.uniform.modelViewMat, false, modelViewMat);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertBuffer);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
@@ -195,7 +249,7 @@ window.VRCubeIsland = (function () {
 
     gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
 
-    if (stats) {
+    if (stats && !multiview) {
       // To ensure that the FPS counter is visible in VR mode we have to
       // render it as part of the scene.
       mat4.fromTranslation(this.statsMat, [0, 1.5, -this.depth * 0.5]);

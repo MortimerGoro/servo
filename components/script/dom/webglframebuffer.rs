@@ -4,7 +4,7 @@
 
 // https://www.khronos.org/registry/webgl/specs/latest/1.0/webgl.idl
 use canvas_traits::webgl::{WebGLCommand, WebGLFramebufferBindingRequest, WebGLFramebufferId};
-use canvas_traits::webgl::{WebGLMsgSender, WebGLResult, WebGLError};
+use canvas_traits::webgl::{WebGLMsg, WebGLMsgSender, WebGLResult, WebGLError};
 use canvas_traits::webgl::webgl_channel;
 use dom::bindings::cell::DomRefCell;
 use dom::bindings::codegen::Bindings::WebGLFramebufferBinding;
@@ -43,24 +43,29 @@ pub struct WebGLFramebuffer {
     depth: DomRefCell<Option<WebGLFramebufferAttachment>>,
     stencil: DomRefCell<Option<WebGLFramebufferAttachment>>,
     depthstencil: DomRefCell<Option<WebGLFramebufferAttachment>>,
+
+    // Opaque framebuffers only allow custom bind commands.
+    opaque_msgs: Option<OpaqueFBOMessages>,
 }
 
 impl WebGLFramebuffer {
     fn new_inherited(renderer: WebGLMsgSender,
-                     id: WebGLFramebufferId)
+                     id: WebGLFramebufferId,
+                     opaque_msgs: Option<OpaqueFBOMessages>)
                      -> WebGLFramebuffer {
         WebGLFramebuffer {
             webgl_object: WebGLObject::new_inherited(),
-            id: id,
+            id,
             target: Cell::new(None),
             is_deleted: Cell::new(false),
-            renderer: renderer,
+            renderer,
             size: Cell::new(None),
             status: Cell::new(constants::FRAMEBUFFER_UNSUPPORTED),
             color: DomRefCell::new(None),
             depth: DomRefCell::new(None),
             stencil: DomRefCell::new(None),
             depthstencil: DomRefCell::new(None),
+            opaque_msgs,
         }
     }
 
@@ -77,12 +82,26 @@ impl WebGLFramebuffer {
                renderer: WebGLMsgSender,
                id: WebGLFramebufferId)
                -> DomRoot<WebGLFramebuffer> {
-        reflect_dom_object(Box::new(WebGLFramebuffer::new_inherited(renderer, id)),
+        reflect_dom_object(Box::new(WebGLFramebuffer::new_inherited(renderer, id, None)),
                            window,
                            WebGLFramebufferBinding::Wrap)
     }
-}
 
+    pub fn new_opaque(window: &Window,
+                      renderer: WebGLMsgSender,
+                      id: WebGLFramebufferId,
+                      opaque_msgs: OpaqueFBOMessages)
+                      -> DomRoot<WebGLFramebuffer> {
+        let fbo = reflect_dom_object(Box::new(WebGLFramebuffer::new_inherited(renderer, id, Some(opaque_msgs))),
+                                     window,
+                                     WebGLFramebufferBinding::Wrap);
+        // Opaque framebuffers are always complete.
+        fbo.status.set(constants::FRAMEBUFFER_COMPLETE);
+
+        fbo
+    }
+
+}
 
 impl WebGLFramebuffer {
     pub fn id(&self) -> WebGLFramebufferId {
@@ -94,14 +113,27 @@ impl WebGLFramebuffer {
         // changed if its attachments were resized or deleted while
         // we've been unbound.
         self.update_status();
-
         self.target.set(Some(target));
-        let cmd = WebGLCommand::BindFramebuffer(target, WebGLFramebufferBindingRequest::Explicit(self.id));
-        self.renderer.send(cmd).unwrap();
+        if let Some(messages) = self.opaque_msgs.as_ref() {
+            self.renderer.send_msg(messages.bind_msg.clone()).unwrap();
+        } else {
+            let cmd = WebGLCommand::BindFramebuffer(target, WebGLFramebufferBindingRequest::Explicit(self.id));
+            self.renderer.send(cmd).unwrap();
+        }
+
+    }
+
+    pub fn unbind(&self) {
+        // Some Opaque FBO implementation may require unbind messages before binding a different FBO.
+        if let Some(messages) = self.opaque_msgs.as_ref() {
+            if let Some(unbind_msg) = messages.unbind_msg.as_ref() {
+                self.renderer.send_msg(unbind_msg.clone()).unwrap();
+            }
+        }
     }
 
     pub fn delete(&self) {
-        if !self.is_deleted.get() {
+        if !self.is_deleted.get() && !self.is_opaque() {
             self.is_deleted.set(true);
             let _ = self.renderer.send(WebGLCommand::DeleteFramebuffer(self.id));
         }
@@ -116,6 +148,10 @@ impl WebGLFramebuffer {
     }
 
     fn update_status(&self) {
+        if self.is_opaque() {
+            return;
+        }
+
         let c = self.color.borrow();
         let z = self.depth.borrow();
         let s = self.stencil.borrow();
@@ -183,7 +219,18 @@ impl WebGLFramebuffer {
         return self.status.get();
     }
 
+    fn is_opaque(&self) -> bool {
+        self.opaque_msgs.is_some()
+    }
+
     pub fn renderbuffer(&self, attachment: u32, rb: Option<&WebGLRenderbuffer>) -> WebGLResult<()> {
+        if self.is_opaque() {
+            // Calling framebufferRenderbuffer, framebufferTexture2D, framebufferTextureLayer, or any other call
+            // that could change framebuffer attachments with an opaque multiview framebuffer bound to target
+            // generates an INVALID_OPERATION error.
+            return Err(WebGLError::InvalidOperation);
+        }
+
         let binding = match attachment {
             constants::COLOR_ATTACHMENT0 => &self.color,
             constants::DEPTH_ATTACHMENT => &self.depth,
@@ -215,6 +262,13 @@ impl WebGLFramebuffer {
 
     pub fn texture2d(&self, attachment: u32, textarget: u32, texture: Option<&WebGLTexture>,
                      level: i32) -> WebGLResult<()> {
+        if self.is_opaque() {
+            // Calling framebufferRenderbuffer, framebufferTexture2D, framebufferTextureLayer, or any other call
+            // that could change framebuffer attachments with an opaque multiview framebuffer bound to target
+            // generates an INVALID_OPERATION error.
+            return Err(WebGLError::InvalidOperation);
+        }
+
         let binding = match attachment {
             constants::COLOR_ATTACHMENT0 => &self.color,
             constants::DEPTH_ATTACHMENT => &self.depth,
@@ -371,4 +425,16 @@ impl Drop for WebGLFramebuffer {
     fn drop(&mut self) {
         self.delete();
     }
+}
+
+/// Custom messages used for Opaque Framebuffers implementation (e.g. WEBGL_multiview)
+/// See https://www.khronos.org/registry/webgl/extensions/proposals/WEBGL_multiview/
+/// Opaque framebuffers only allow bind commands.
+/// Unbind command may be required in some kind of implementaion (e.g. Daydream swap chain)
+#[derive(MallocSizeOf, JSTraceable)]
+pub struct OpaqueFBOMessages {
+    #[ignore_malloc_size_of = "Channels are hard"]
+    pub bind_msg: WebGLMsg,
+    #[ignore_malloc_size_of = "Channels are hard"]
+    pub unbind_msg: Option<WebGLMsg>,
 }
