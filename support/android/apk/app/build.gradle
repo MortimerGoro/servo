@@ -42,6 +42,9 @@ android {
         oculusvr {
             minSdkVersion 21
         }
+        svr {
+            minSdkVersion 21
+        }
     }
 
     sourceSets {
@@ -211,6 +214,7 @@ dependencies {
     googlevrCompile 'com.google.vr:sdk-base:1.70.0'
     googlevrCompile(name:'GVRService', ext:'aar')
     oculusvrCompile(name:'OVRService', ext:'aar')
+    svrCompile(name:'SVRService', ext:'aar')
 }
 
 // Utility methods

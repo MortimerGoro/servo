@@ -912,8 +912,8 @@ lazy_static! {
 
 pub fn set_defaults(opts: Opts) {
     unsafe {
-        assert!(DEFAULT_OPTIONS.is_null());
-        assert!(DEFAULT_OPTIONS != INVALID_OPTIONS);
+        //assert!(DEFAULT_OPTIONS.is_null());
+        //assert!(DEFAULT_OPTIONS != INVALID_OPTIONS);
         let box_opts = Box::new(opts);
         DEFAULT_OPTIONS = Box::into_raw(box_opts);
     }

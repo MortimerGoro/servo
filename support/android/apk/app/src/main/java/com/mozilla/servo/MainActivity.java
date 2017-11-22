@@ -83,12 +83,12 @@ public class MainActivity extends android.app.NativeActivity {
             String orientation = preferences.optString("shell.native-orientation", "both");
 
             // Handle orientation preference
-            if (orientation.equalsIgnoreCase("portrait")) {
+           /* if (orientation.equalsIgnoreCase("portrait")) {
                 setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
             }
             else if (orientation.equalsIgnoreCase("landscape")) {
                 setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-            }
+            }*/
         }
 
         super.onCreate(savedInstanceState);

@@ -18,6 +18,7 @@ energy-profiling = ["profile_traits/energy-profiling"]
 debugmozjs = ["script/debugmozjs"]
 googlevr = ["webvr/googlevr"]
 oculusvr = ["webvr/oculusvr"]
+svr = ["webvr/svr"]
 unstable = [
     "euclid/unstable",
     "gfx/unstable",

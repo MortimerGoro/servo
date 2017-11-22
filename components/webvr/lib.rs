@@ -14,6 +14,8 @@ extern crate rust_webvr;
 extern crate script_traits;
 extern crate servo_config;
 extern crate webvr_traits;
+#[cfg(all(feature = "svr", target_os = "android"))]
+extern crate rust_svr;
 
 mod webvr_thread;
 pub use webvr_thread::{WebVRThread, WebVRCompositorHandler};

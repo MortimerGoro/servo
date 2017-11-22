@@ -12,6 +12,7 @@ path = "lib.rs"
 [features]
 googlevr = ['rust-webvr/googlevr']
 oculusvr = ['rust-webvr/oculusvr']
+svr = ['rust-svr']
 
 [dependencies]
 canvas_traits = {path = "../canvas_traits"}
@@ -22,4 +23,5 @@ msg = {path = "../msg"}
 rust-webvr = {version = "0.9", features = ["openvr"]}
 script_traits = {path = "../script_traits"}
 servo_config = {path = "../config"}
-webvr_traits = {path = "../webvr_traits" }
+rust-svr = { path = "/home/mortimer/Projects/rust-svr", optional = true }
+webvr_traits = {path = "../webvr_traits"}

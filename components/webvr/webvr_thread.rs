@@ -55,6 +55,9 @@ impl WebVRThread {
            -> WebVRThread {
         let mut service = VRServiceManager::new();
         service.register_defaults();
+        #[cfg(all(feature = "svr", target_os = "android"))]
+        service.register(::rust_svr::SVRServiceCreator::new().new_service());
+    
         WebVRThread {
             receiver: receiver,
             sender: sender,

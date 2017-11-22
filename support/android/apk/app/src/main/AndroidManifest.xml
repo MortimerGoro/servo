@@ -14,6 +14,7 @@
     <application android:label="Servo" android:icon="@mipmap/servo">
         <activity android:name=".MainActivity"
                 android:label="Servo"
+                android:screenOrientation="reverseLandscape"
                 android:configChanges="orientation|keyboardHidden|screenSize">
             <meta-data android:name="android.app.lib_name" android:value="servo" />
             <intent-filter>
